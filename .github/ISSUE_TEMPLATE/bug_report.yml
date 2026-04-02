@@ -1,0 +1,54 @@
+name: Bug Report
+description: Report a bug in Bridge CLI
+labels: ["bug"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Bridge CLI Version
+      description: "Run `bridge --version` and paste the output"
+      placeholder: "bridge-cli 1.0.0"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating System
+      description: "OS and architecture (e.g., macOS 14.0 ARM64, Ubuntu 22.04 x86_64)"
+      placeholder: "macOS 15.0 ARM64"
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: "A clear description of the bug"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: "Minimal steps to reproduce the behavior"
+      placeholder: |
+        1. Run `bridge init`
+        2. Run `bridge connect ...`
+        3. Run `bridge read ...`
+        4. See error
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: "What you expected to happen"
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Config (bridge.yaml)
+      description: "Paste your bridge.yaml (redact any credentials)"
+      render: yaml
+    validations:
+      required: false
