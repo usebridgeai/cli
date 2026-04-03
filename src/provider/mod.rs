@@ -38,12 +38,17 @@ pub struct ProviderStatus {
     pub message: Option<String>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct ReadOptions {
+    pub limit: Option<usize>,
+}
+
 #[async_trait]
 pub trait Provider: Send + Sync {
     fn name(&self) -> &str;
     fn capabilities(&self) -> ProviderCapabilities;
     async fn connect(&mut self, config: &ProviderConfig) -> Result<()>;
-    async fn read(&self, path: &str) -> Result<ContextValue>;
+    async fn read(&self, path: &str, options: ReadOptions) -> Result<ContextValue>;
     async fn list(&self, prefix: Option<&str>) -> Result<Vec<ContextEntry>>;
     async fn health(&self) -> Result<ProviderStatus>;
 

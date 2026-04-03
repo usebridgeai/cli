@@ -16,7 +16,7 @@
 use async_trait::async_trait;
 use std::path::PathBuf;
 
-use super::{Provider, ProviderCapabilities, ProviderStatus};
+use super::{Provider, ProviderCapabilities, ProviderStatus, ReadOptions};
 use crate::config::{parse_file_uri, ProviderConfig};
 use crate::context::{ContextData, ContextEntry, ContextMetadata, ContextValue, EntryType};
 use crate::error::{BridgeError, Result};
@@ -96,7 +96,7 @@ impl Provider for FilesystemProvider {
         Ok(())
     }
 
-    async fn read(&self, path: &str) -> Result<ContextValue> {
+    async fn read(&self, path: &str, _options: ReadOptions) -> Result<ContextValue> {
         let file_path = self.safe_resolve(path)?;
         let metadata = tokio::fs::metadata(&file_path).await?;
         let size = metadata.len();

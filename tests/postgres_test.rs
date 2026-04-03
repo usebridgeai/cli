@@ -22,7 +22,6 @@
 
 use assert_cmd::Command;
 use predicates::prelude::*;
-use std::sync::Once;
 use tempfile::TempDir;
 use tokio::sync::OnceCell;
 
@@ -189,6 +188,60 @@ async fn test_pg_read_table() {
 
 #[tokio::test]
 #[ignore]
+async fn test_pg_read_table_respects_limit() {
+    let db_url = match get_database_url() {
+        Some(url) => url,
+        None => return,
+    };
+    ensure_tables(&db_url).await;
+
+    let dir = TempDir::new().unwrap();
+    setup_pg(&dir, &db_url);
+
+    let output = bridge()
+        .args(["read", "bridge_test_users", "--from", "db", "--limit", "2"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let rows = value["data"]["content"].as_array().unwrap();
+
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["id"], 1);
+    assert_eq!(rows[1]["id"], 2);
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_pg_read_table_allows_zero_limit() {
+    let db_url = match get_database_url() {
+        Some(url) => url,
+        None => return,
+    };
+    ensure_tables(&db_url).await;
+
+    let dir = TempDir::new().unwrap();
+    setup_pg(&dir, &db_url);
+
+    let output = bridge()
+        .args(["read", "bridge_test_users", "--from", "db", "--limit", "0"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let rows = value["data"]["content"].as_array().unwrap();
+
+    assert_eq!(rows.len(), 0);
+}
+
+#[tokio::test]
+#[ignore]
 async fn test_pg_read_single_row() {
     let db_url = match get_database_url() {
         Some(url) => url,
@@ -210,6 +263,40 @@ async fn test_pg_read_single_row() {
     let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
 
     assert_eq!(value["data"]["type"], "json");
+    assert_eq!(value["data"]["content"]["name"], "Bob");
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_pg_read_single_row_ignores_limit() {
+    let db_url = match get_database_url() {
+        Some(url) => url,
+        None => return,
+    };
+    ensure_tables(&db_url).await;
+
+    let dir = TempDir::new().unwrap();
+    setup_pg(&dir, &db_url);
+
+    let output = bridge()
+        .args([
+            "read",
+            "bridge_test_users/2",
+            "--from",
+            "db",
+            "--limit",
+            "0",
+        ])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+
+    assert_eq!(value["data"]["type"], "json");
+    assert_eq!(value["data"]["content"]["id"], 2);
     assert_eq!(value["data"]["content"]["name"], "Bob");
 }
 

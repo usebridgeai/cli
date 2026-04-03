@@ -173,6 +173,20 @@ fn test_read_nested_file() {
 }
 
 #[test]
+fn test_read_filesystem_ignores_limit() {
+    let dir = TempDir::new().unwrap();
+    setup_with_fixtures(&dir);
+
+    bridge()
+        .args(["read", "hello.md", "--from", "files", "--limit", "1"])
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("# Hello"))
+        .stdout(predicate::str::contains("\"type\": \"text\""));
+}
+
+#[test]
 fn test_read_nonexistent_file() {
     let dir = TempDir::new().unwrap();
     setup_with_fixtures(&dir);

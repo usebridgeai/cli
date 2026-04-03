@@ -15,9 +15,9 @@
 
 use crate::config::{expand_env_vars, load_config, ProviderConfig};
 use crate::error::{BridgeError, Result};
-use crate::provider::create_provider;
+use crate::provider::{create_provider, ReadOptions};
 
-pub async fn execute(path: String, from: String, _limit: usize, timeout_secs: u64) -> Result<()> {
+pub async fn execute(path: String, from: String, limit: usize, timeout_secs: u64) -> Result<()> {
     let config = load_config()?;
 
     let provider_config = config.providers.get(&from).ok_or_else(|| {
@@ -43,7 +43,9 @@ pub async fn execute(path: String, from: String, _limit: usize, timeout_secs: u6
         .await
         .map_err(|_| BridgeError::Timeout(timeout_secs))??;
 
-    let context_value = tokio::time::timeout(timeout, provider.read(&path))
+    let read_options = ReadOptions { limit: Some(limit) };
+
+    let context_value = tokio::time::timeout(timeout, provider.read(&path, read_options))
         .await
         .map_err(|_| BridgeError::Timeout(timeout_secs))??;
 
