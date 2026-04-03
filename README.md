@@ -196,6 +196,22 @@ Bridge CLI is open source under the [AGPL-3.0-only](LICENSE) license. We welcome
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for how the codebase is structured and how to add a new provider.
 
+## Testing
+
+Run the default test suite with:
+
+```bash
+cargo test
+```
+
+Run the Postgres integration tests with:
+
+```bash
+DATABASE_URL=your-real-postgres-url cargo test --test postgres_test -- --ignored --nocapture
+```
+
+The Postgres tests require `DATABASE_URL` to point to a reachable Postgres instance. They create and reset `bridge_test_*` tables as part of setup, so use a dedicated local or test database.
+
 ## Shell Completions
 
 Run `bridge completions <shell>` for bash, zsh, fish, or PowerShell. The install script sets up completions automatically.
