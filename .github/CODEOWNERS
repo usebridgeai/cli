@@ -1,0 +1,5 @@
+# CODEOWNERS — auto-assigns PR reviewers
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Both maintainers review all changes
+* @gbeslic @tomerlir
