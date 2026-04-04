@@ -80,21 +80,25 @@ Errors go to stderr as JSON with non-zero exit codes. Agents read stdout for dat
 ## Install
 
 **macOS / Linux:**
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/usebridgeai/cli/main/install.sh | sh
 ```
 
 **Windows (PowerShell):**
+
 ```powershell
 irm https://raw.githubusercontent.com/usebridgeai/cli/main/install.ps1 | iex
 ```
 
 **Homebrew (macOS):**
+
 ```bash
 brew install usebridgeai/tap/bridge
 ```
 
 **From source (requires Rust):**
+
 ```bash
 cargo install --path .
 ```
@@ -127,28 +131,28 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design.
 
 ## Providers
 
-| Provider | URI | `ls` returns | `read` returns |
-|----------|-----|-------------|----------------|
-| Filesystem | `file://./path` | Files and directories | File contents (text, JSON, or base64) |
-| Postgres | `postgres://host:port/db` | Tables | All rows (`users`) or single row (`users/42`) |
+| Provider   | URI                       | `ls` returns          | `read` returns                                |
+| ---------- | ------------------------- | --------------------- | --------------------------------------------- |
+| Filesystem | `file://./path`           | Files and directories | File contents (text, JSON, or base64)         |
+| Postgres   | `postgres://host:port/db` | Tables                | All rows (`users`) or single row (`users/42`) |
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `bridge init` | Create a `bridge.yaml` config file |
-| `bridge connect <uri> --as <name>` | Add a data source connection |
-| `bridge remove <name>` | Remove a data source |
-| `bridge status` | Show health of all connections |
-| `bridge ls --from <name>` | List contents (files, tables) |
-| `bridge read <path> --from <name>` | Read context from a source |
+| Command                            | Description                        |
+| ---------------------------------- | ---------------------------------- |
+| `bridge init`                      | Create a `bridge.yaml` config file |
+| `bridge connect <uri> --as <name>` | Add a data source connection       |
+| `bridge remove <name>`             | Remove a data source               |
+| `bridge status`                    | Show health of all connections     |
+| `bridge ls --from <name>`          | List contents (files, tables)      |
+| `bridge read <path> --from <name>` | Read context from a source         |
 
 ## Configuration
 
 Bridge uses a `bridge.yaml` file in the project root:
 
 ```yaml
-version: '1'
+version: "1"
 name: my-project
 providers:
   files:
@@ -223,4 +227,4 @@ Bridge CLI is licensed under the [GNU Affero General Public License v3.0 only](L
 
 ## License
 
-[AGPL-3.0-only](LICENSE) -- Copyright (c) 2026 Gabriel Beslic
+[AGPL-3.0-only](LICENSE) -- Copyright (c) 2026 Gabriel Beslic & Tomer Liran
