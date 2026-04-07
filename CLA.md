@@ -8,9 +8,9 @@ By submitting a pull request or other contribution to Bridge CLI, you agree to t
 
 1. **You retain copyright.** You keep full ownership of your contributions. This agreement does not transfer copyright.
 
-2. **You grant a broad copyright license.** You grant to Gabriel Beslic, Tomer Liran and his successors and assigns a perpetual, worldwide, non-exclusive, royalty-free, irrevocable license to use, reproduce, modify, prepare derivative works of, publicly display, publicly perform, distribute, and sublicense your contributions as part of Bridge CLI, under any license, including the GNU Affero General Public License version 3 and any commercial license that Gabriel Beslic and Tomer Liran may offer.
+2. **You grant a broad copyright license.** You grant to Gabriel Beslic, Tomer Li Ran and his successors and assigns a perpetual, worldwide, non-exclusive, royalty-free, irrevocable license to use, reproduce, modify, prepare derivative works of, publicly display, publicly perform, distribute, and sublicense your contributions as part of Bridge CLI, under any license, including the GNU Affero General Public License version 3 and any commercial license that Gabriel Beslic and Tomer Li Ran may offer.
 
-3. **You grant a patent license.** You grant to Gabriel Beslic, Tomer Liran and his successors and assigns a perpetual, worldwide, non-exclusive, royalty-free, irrevocable patent license to make, have made, use, offer to sell, sell, import, and otherwise transfer your contributions, where such license applies only to those patent claims licensable by you that are necessarily infringed by your contribution alone or by combination of your contribution with the project to which the contribution was submitted.
+3. **You grant a patent license.** You grant to Gabriel Beslic, Tomer Li Ran and his successors and assigns a perpetual, worldwide, non-exclusive, royalty-free, irrevocable patent license to make, have made, use, offer to sell, sell, import, and otherwise transfer your contributions, where such license applies only to those patent claims licensable by you that are necessarily infringed by your contribution alone or by combination of your contribution with the project to which the contribution was submitted.
 
 4. **You can do what you want with your own code.** This agreement does not restrict your right to use your own contributions for any other purpose.
 
@@ -22,7 +22,7 @@ By submitting a pull request or other contribution to Bridge CLI, you agree to t
 
 ## Why This Exists
 
-Bridge CLI is dual-licensed: open source under AGPL-3.0-only, with commercial licenses available for organizations that need them. This CLA ensures Gabriel Beslic, Tomer Liran can continue offering both licensing options as the project grows. Without it, every contributor would need to be individually contacted for permission to include their code in commercially licensed distributions.
+Bridge CLI is dual-licensed: open source under AGPL-3.0-only, with commercial licenses available for organizations that need them. This CLA ensures Gabriel Beslic, Tomer Li Ran can continue offering both licensing options as the project grows. Without it, every contributor would need to be individually contacted for permission to include their code in commercially licensed distributions.
 
 This is the same model used by Grafana, MinIO, GitLab, and many other dual-licensed open source projects.
 

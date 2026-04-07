@@ -227,4 +227,4 @@ Bridge CLI is licensed under the [GNU Affero General Public License v3.0 only](L
 
 ## License
 
-[AGPL-3.0-only](LICENSE) -- Copyright (c) 2026 Gabriel Beslic & Tomer Liran
+[AGPL-3.0-only](LICENSE) -- Copyright (c) 2026 Gabriel Beslic & Tomer Li Ran

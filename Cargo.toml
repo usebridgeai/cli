@@ -7,7 +7,7 @@ description = "One CLI. Any storage. Every agent."
 license = "AGPL-3.0-only"
 repository = "https://github.com/usebridgeai/cli"
 homepage = "https://bridge.ls"
-authors = ["Gabriel Beslic", "Tomer Liran"]
+authors = ["Gabriel Beslic", "Tomer Li Ran"]
 keywords = ["ai", "agents", "cli", "context", "storage"]
 categories = ["command-line-utilities", "database"]
 
