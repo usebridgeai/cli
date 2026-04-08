@@ -2,7 +2,7 @@
 
 ## Identification
 
-The name "Bridge CLI" and the Bridge logo are used to identify the Bridge CLI project, maintained by Gabriel Beslic. No trademark registration is claimed. These guidelines are enforced as an additional term under Section 7(e) of the GNU Affero General Public License version 3.
+The name "Bridge CLI" and the Bridge logo are used to identify the Bridge CLI project, maintained by Gabriel Beslic and Tomer Li Ran. No trademark registration is claimed. These guidelines are enforced as an additional term under Section 7(e) of the GNU Affero General Public License version 3.
 
 ## Acceptable Use
 
@@ -14,10 +14,10 @@ You may use the "Bridge CLI" name to:
 
 ## Restricted Use
 
-You may not, without prior written permission from Gabriel Beslic:
+You may not, without prior written permission from Gabriel Beslic and Tomer Li Ran:
 
 - Use "Bridge CLI" or the Bridge logo in your product name, company name, domain name, or social media account in a way that suggests endorsement or affiliation
-- Use the Bridge name or logo in any way that is misleading or may imply association with, sponsorship by, or endorsement by Gabriel Beslic
+- Use the Bridge name or logo in any way that is misleading or may imply association with, sponsorship by, or endorsement by Gabriel Beslic and Tomer Li Ran
 - Create a modified version of Bridge CLI and distribute it under the "Bridge CLI" name without clearly indicating that it is a modified version
 - Use the Bridge logo or any confusingly similar mark as part of your own logo
 
