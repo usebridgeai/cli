@@ -54,10 +54,7 @@ fn resolve_provider_target(
         if let Some(explicit) = explicit_provider_type {
             validate_provider_type(&explicit)?;
             if explicit != inferred {
-                return Err(BridgeError::ProviderTypeConflict {
-                    explicit,
-                    inferred,
-                });
+                return Err(BridgeError::ProviderTypeConflict { explicit, inferred });
             }
             return Ok((explicit, target.to_string()));
         }
@@ -72,9 +69,8 @@ fn resolve_provider_target(
     }
 
     if is_valid_env_var_name(target) {
-        let explicit = explicit_provider_type.ok_or_else(|| {
-            BridgeError::MissingProviderType(target.to_string())
-        })?;
+        let explicit = explicit_provider_type
+            .ok_or_else(|| BridgeError::MissingProviderType(target.to_string()))?;
         validate_provider_type(&explicit)?;
         return Ok((explicit, format!("${{{target}}}")));
     }
@@ -120,11 +116,8 @@ mod tests {
 
     #[test]
     fn test_resolve_literal_uri_with_matching_explicit_type() {
-        let (provider_type, uri) = resolve_provider_target(
-            "file://./docs",
-            Some("filesystem".to_string()),
-        )
-        .unwrap();
+        let (provider_type, uri) =
+            resolve_provider_target("file://./docs", Some("filesystem".to_string())).unwrap();
         assert_eq!(provider_type, "filesystem");
         assert_eq!(uri, "file://./docs");
     }
@@ -145,8 +138,8 @@ mod tests {
 
     #[test]
     fn test_resolve_placeholder_target_is_invalid() {
-        let error = resolve_provider_target("${DATABASE_URL}", Some("postgres".to_string()))
-            .unwrap_err();
+        let error =
+            resolve_provider_target("${DATABASE_URL}", Some("postgres".to_string())).unwrap_err();
         assert!(matches!(error, BridgeError::InvalidConnectTarget(_)));
     }
 }

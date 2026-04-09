@@ -49,7 +49,9 @@ pub enum BridgeError {
     #[error("Invalid provider type '{0}'. Supported provider types: {1}")]
     InvalidProviderType(String, String),
 
-    #[error("Provider type conflict: target implies '{inferred}', but --type specified '{explicit}'")]
+    #[error(
+        "Provider type conflict: target implies '{inferred}', but --type specified '{explicit}'"
+    )]
     ProviderTypeConflict { explicit: String, inferred: String },
 
     #[error("Invalid environment variable name '{0}'. Use a bare name like DATABASE_URL.")]

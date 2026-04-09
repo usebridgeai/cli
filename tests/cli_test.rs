@@ -217,14 +217,7 @@ fn test_connect_env_var_target_with_invalid_provider_type() {
         .success();
 
     bridge()
-        .args([
-            "connect",
-            "DATABASE_URL",
-            "--type",
-            "redis",
-            "--as",
-            "db",
-        ])
+        .args(["connect", "DATABASE_URL", "--type", "redis", "--as", "db"])
         .current_dir(dir.path())
         .assert()
         .failure()
