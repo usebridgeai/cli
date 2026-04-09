@@ -39,9 +39,13 @@ pub enum Commands {
 
     /// Add a provider connection
     Connect {
-        /// URI of the data source (e.g., file://./data, postgres://localhost/db)
-        #[arg(value_hint = ValueHint::Url)]
-        uri: String,
+        /// Connection target: a literal URI or an environment variable name
+        #[arg(value_name = "target", value_hint = ValueHint::Other)]
+        target: String,
+
+        /// Provider type. Required when <target> is an environment variable name.
+        #[arg(long = "type")]
+        provider_type: Option<String>,
 
         /// Name for this provider connection
         #[arg(long = "as")]

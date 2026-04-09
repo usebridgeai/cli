@@ -22,6 +22,8 @@ use crate::error::{BridgeError, Result};
 use async_trait::async_trait;
 use serde::Serialize;
 
+pub const SUPPORTED_PROVIDER_TYPES: &[&str] = &["filesystem", "postgres"];
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ProviderCapabilities {
     pub read: bool,
@@ -72,7 +74,15 @@ pub fn create_provider(type_name: &str) -> Result<Box<dyn Provider>> {
         "postgres" => Ok(Box::new(postgres::PostgresProvider::new())),
         _ => Err(BridgeError::ProviderNotFound(
             type_name.to_string(),
-            "filesystem, postgres".to_string(),
+            supported_provider_types().to_string(),
         )),
     }
+}
+
+pub fn is_supported_provider_type(type_name: &str) -> bool {
+    SUPPORTED_PROVIDER_TYPES.contains(&type_name)
+}
+
+pub fn supported_provider_types() -> &'static str {
+    "filesystem, postgres"
 }

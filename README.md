@@ -31,6 +31,7 @@ bridge init
 # Connect data sources
 bridge connect file://./docs --as files
 bridge connect postgres://localhost:5432/mydb --as db
+bridge connect DATABASE_URL --type postgres --as db
 
 # List contents
 bridge ls --from files
@@ -141,7 +142,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design.
 | Command                            | Description                        |
 | ---------------------------------- | ---------------------------------- |
 | `bridge init`                      | Create a `bridge.yaml` config file |
-| `bridge connect <uri> --as <name>` | Add a data source connection       |
+| `bridge connect <target> --as <name> [--type <provider>]` | Add a data source connection       |
 | `bridge remove <name>`             | Remove a data source               |
 | `bridge status`                    | Show health of all connections     |
 | `bridge ls --from <name>`          | List contents (files, tables)      |
@@ -163,7 +164,14 @@ providers:
     uri: ${DATABASE_URL}
 ```
 
-Environment variables are supported with `${VAR_NAME}` syntax. Keep secrets out of the config file.
+Environment variables are supported with `${VAR_NAME}` syntax. For shared or production setups, prefer `${VAR_NAME}` references so the real secret stays outside `bridge.yaml`.
+
+Bridge supports two setup patterns:
+
+- For quick local setup, pass a literal URI such as `postgres://localhost:5432/mydb`.
+- For safer shared or production setups, pass a bare environment variable name such as `DATABASE_URL` together with `--type postgres`. Bridge writes `uri: ${DATABASE_URL}` into `bridge.yaml` and resolves the real value at runtime.
+
+Bridge reads environment variables from the process environment when commands run. It does not automatically load a `.env` file for you.
 
 ## Security
 

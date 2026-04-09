@@ -40,6 +40,21 @@ pub enum BridgeError {
     )]
     InvalidUri(String),
 
+    #[error("Invalid connect target: {0}")]
+    InvalidConnectTarget(String),
+
+    #[error("Provider type is required when target '{0}' is an environment variable name. Pass --type <provider>.")]
+    MissingProviderType(String),
+
+    #[error("Invalid provider type '{0}'. Supported provider types: {1}")]
+    InvalidProviderType(String, String),
+
+    #[error("Provider type conflict: target implies '{inferred}', but --type specified '{explicit}'")]
+    ProviderTypeConflict { explicit: String, inferred: String },
+
+    #[error("Invalid environment variable name '{0}'. Use a bare name like DATABASE_URL.")]
+    InvalidEnvVarName(String),
+
     #[error("Path traversal denied: '{0}' escapes the provider root directory")]
     PathTraversal(String),
 
@@ -72,6 +87,11 @@ impl BridgeError {
             Self::UnsupportedOperation(_) => "unsupported_operation",
             Self::EnvVarNotSet(_) => "env_var_not_set",
             Self::InvalidUri(_) => "invalid_uri",
+            Self::InvalidConnectTarget(_) => "invalid_connect_target",
+            Self::MissingProviderType(_) => "missing_provider_type",
+            Self::InvalidProviderType(_, _) => "invalid_provider_type",
+            Self::ProviderTypeConflict { .. } => "provider_type_conflict",
+            Self::InvalidEnvVarName(_) => "invalid_env_var_name",
             Self::PathTraversal(_) => "path_traversal",
             Self::Timeout(_) => "timeout",
             Self::InvalidIdentifier(_) => "invalid_identifier",
