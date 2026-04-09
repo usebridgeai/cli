@@ -13,7 +13,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-use std::path::PathBuf;
 use tempfile::TempDir;
 
 // We test the filesystem provider through the CLI binary to avoid
@@ -170,6 +169,20 @@ fn test_read_nested_file() {
         .assert()
         .success()
         .stdout(predicate::str::contains("deep content"));
+}
+
+#[test]
+fn test_read_filesystem_ignores_limit() {
+    let dir = TempDir::new().unwrap();
+    setup_with_fixtures(&dir);
+
+    bridge()
+        .args(["read", "hello.md", "--from", "files", "--limit", "1"])
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("# Hello"))
+        .stdout(predicate::str::contains("\"type\": \"text\""));
 }
 
 #[test]

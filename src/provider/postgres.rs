@@ -20,7 +20,7 @@ use sqlx::Row;
 use std::sync::LazyLock;
 use std::time::Instant;
 
-use super::{Provider, ProviderCapabilities, ProviderStatus};
+use super::{Provider, ProviderCapabilities, ProviderStatus, ReadOptions};
 use crate::config::ProviderConfig;
 use crate::context::{ContextData, ContextEntry, ContextMetadata, ContextValue, EntryType};
 use crate::error::{redact_uri, BridgeError, Result};
@@ -142,8 +142,9 @@ impl Provider for PostgresProvider {
         Ok(())
     }
 
-    async fn read(&self, path: &str) -> Result<ContextValue> {
+    async fn read(&self, path: &str, options: ReadOptions) -> Result<ContextValue> {
         let pool = self.pool()?;
+        let limit = options.limit.unwrap_or(100);
 
         // Parse path: "table" or "table/pk_value"
         let (table, pk_value) = if let Some(slash_pos) = path.find('/') {
@@ -197,11 +198,12 @@ impl Provider for PostgresProvider {
                 }
             }
             None => {
-                // Table read with ORDER BY and LIMIT
+                // Table read with ORDER BY and caller-provided LIMIT
                 let query = format!(
-                    "SELECT * FROM {table_q} ORDER BY {pk_q} LIMIT 100",
+                    "SELECT * FROM {table_q} ORDER BY {pk_q} LIMIT {limit}",
                     table_q = quote_ident(table),
                     pk_q = quote_ident(&pk_col),
+                    limit = limit,
                 );
                 let rows = sqlx::query(&query).fetch_all(pool).await?;
                 let json_rows: Vec<serde_json::Value> =

@@ -5,13 +5,13 @@
 Bridge is a single Rust binary with a plugin-ready provider architecture. Agents invoke it directly via CLI — no server, no daemon, no MCP.
 
 ```
-Agent → bridge read <path> --from <provider>
+Agent → bridge read <path> --from <provider> [--limit <n>]
             │
             ├── Load bridge.yaml
             ├── Expand ${ENV_VARS}
             ├── Resolve provider by name
             ├── Provider.connect()
-            ├── Provider.read(path)
+            ├── Provider.read(path, options)
             │       ↓
             │   ContextValue { data, metadata }
             │       ↓
@@ -55,7 +55,7 @@ pub trait Provider: Send + Sync {
     fn name(&self) -> &str;
     fn capabilities(&self) -> ProviderCapabilities;
     async fn connect(&mut self, config: &ProviderConfig) -> Result<()>;
-    async fn read(&self, path: &str) -> Result<ContextValue>;
+    async fn read(&self, path: &str, options: ReadOptions) -> Result<ContextValue>;
     async fn list(&self, prefix: Option<&str>) -> Result<Vec<ContextEntry>>;
     async fn health(&self) -> Result<ProviderStatus>;
 }

@@ -15,14 +15,13 @@
 
 //! Postgres integration tests.
 //!
-//! These tests require Docker to be running.
+//! These tests require `DATABASE_URL` to be set to a reachable Postgres instance.
 //! Run with: cargo test -- --ignored
 //!
 //! In CI, use a Postgres service container and set DATABASE_URL instead.
 
 use assert_cmd::Command;
 use predicates::prelude::*;
-use std::sync::Once;
 use tempfile::TempDir;
 use tokio::sync::OnceCell;
 
@@ -32,9 +31,14 @@ fn bridge() -> Command {
     Command::cargo_bin("bridge").unwrap()
 }
 
-/// Get the Postgres connection URL.
-fn get_database_url() -> Option<String> {
-    std::env::var("DATABASE_URL").ok()
+async fn test_database_url() -> &'static str {
+    std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| {
+            panic!(
+                "Postgres integration tests require DATABASE_URL to point to a reachable Postgres instance"
+            )
+        })
+        .leak()
 }
 
 /// Set up a temp dir with bridge.yaml pointing to Postgres.
@@ -123,17 +127,11 @@ async fn ensure_tables(db_url: &str) {
 #[tokio::test]
 #[ignore]
 async fn test_pg_ls_tables() {
-    let db_url = match get_database_url() {
-        Some(url) => url,
-        None => {
-            eprintln!("Skipping: DATABASE_URL not set");
-            return;
-        }
-    };
-    ensure_tables(&db_url).await;
+    let db_url = test_database_url().await;
+    ensure_tables(db_url).await;
 
     let dir = TempDir::new().unwrap();
-    setup_pg(&dir, &db_url);
+    setup_pg(&dir, db_url);
 
     let output = bridge()
         .args(["ls", "--from", "db"])
@@ -157,14 +155,11 @@ async fn test_pg_ls_tables() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_read_table() {
-    let db_url = match get_database_url() {
-        Some(url) => url,
-        None => return,
-    };
-    ensure_tables(&db_url).await;
+    let db_url = test_database_url().await;
+    ensure_tables(db_url).await;
 
     let dir = TempDir::new().unwrap();
-    setup_pg(&dir, &db_url);
+    setup_pg(&dir, db_url);
 
     let output = bridge()
         .args(["read", "bridge_test_users", "--from", "db"])
@@ -189,15 +184,60 @@ async fn test_pg_read_table() {
 
 #[tokio::test]
 #[ignore]
-async fn test_pg_read_single_row() {
-    let db_url = match get_database_url() {
-        Some(url) => url,
-        None => return,
-    };
-    ensure_tables(&db_url).await;
+async fn test_pg_read_table_respects_limit() {
+    let db_url = test_database_url().await;
+    ensure_tables(db_url).await;
 
     let dir = TempDir::new().unwrap();
-    setup_pg(&dir, &db_url);
+    setup_pg(&dir, db_url);
+
+    let output = bridge()
+        .args(["read", "bridge_test_users", "--from", "db", "--limit", "2"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let rows = value["data"]["content"].as_array().unwrap();
+
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["id"], 1);
+    assert_eq!(rows[1]["id"], 2);
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_pg_read_table_allows_zero_limit() {
+    let db_url = test_database_url().await;
+    ensure_tables(db_url).await;
+
+    let dir = TempDir::new().unwrap();
+    setup_pg(&dir, db_url);
+
+    let output = bridge()
+        .args(["read", "bridge_test_users", "--from", "db", "--limit", "0"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let rows = value["data"]["content"].as_array().unwrap();
+
+    assert_eq!(rows.len(), 0);
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_pg_read_single_row() {
+    let db_url = test_database_url().await;
+    ensure_tables(db_url).await;
+
+    let dir = TempDir::new().unwrap();
+    setup_pg(&dir, db_url);
 
     let output = bridge()
         .args(["read", "bridge_test_users/2", "--from", "db"])
@@ -215,15 +255,43 @@ async fn test_pg_read_single_row() {
 
 #[tokio::test]
 #[ignore]
-async fn test_pg_read_row_not_found() {
-    let db_url = match get_database_url() {
-        Some(url) => url,
-        None => return,
-    };
-    ensure_tables(&db_url).await;
+async fn test_pg_read_single_row_ignores_limit() {
+    let db_url = test_database_url().await;
+    ensure_tables(db_url).await;
 
     let dir = TempDir::new().unwrap();
-    setup_pg(&dir, &db_url);
+    setup_pg(&dir, db_url);
+
+    let output = bridge()
+        .args([
+            "read",
+            "bridge_test_users/2",
+            "--from",
+            "db",
+            "--limit",
+            "0",
+        ])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+
+    assert_eq!(value["data"]["type"], "json");
+    assert_eq!(value["data"]["content"]["id"], 2);
+    assert_eq!(value["data"]["content"]["name"], "Bob");
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_pg_read_row_not_found() {
+    let db_url = test_database_url().await;
+    ensure_tables(db_url).await;
+
+    let dir = TempDir::new().unwrap();
+    setup_pg(&dir, db_url);
 
     bridge()
         .args(["read", "bridge_test_users/999", "--from", "db"])
@@ -236,14 +304,11 @@ async fn test_pg_read_row_not_found() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_read_empty_table() {
-    let db_url = match get_database_url() {
-        Some(url) => url,
-        None => return,
-    };
-    ensure_tables(&db_url).await;
+    let db_url = test_database_url().await;
+    ensure_tables(db_url).await;
 
     let dir = TempDir::new().unwrap();
-    setup_pg(&dir, &db_url);
+    setup_pg(&dir, db_url);
 
     let output = bridge()
         .args(["read", "bridge_test_empty", "--from", "db"])
@@ -261,14 +326,11 @@ async fn test_pg_read_empty_table() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_read_nonexistent_table() {
-    let db_url = match get_database_url() {
-        Some(url) => url,
-        None => return,
-    };
-    ensure_tables(&db_url).await;
+    let db_url = test_database_url().await;
+    ensure_tables(db_url).await;
 
     let dir = TempDir::new().unwrap();
-    setup_pg(&dir, &db_url);
+    setup_pg(&dir, db_url);
 
     bridge()
         .args(["read", "bridge_test_nonexistent", "--from", "db"])
@@ -281,14 +343,11 @@ async fn test_pg_read_nonexistent_table() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_read_no_primary_key() {
-    let db_url = match get_database_url() {
-        Some(url) => url,
-        None => return,
-    };
-    ensure_tables(&db_url).await;
+    let db_url = test_database_url().await;
+    ensure_tables(db_url).await;
 
     let dir = TempDir::new().unwrap();
-    setup_pg(&dir, &db_url);
+    setup_pg(&dir, db_url);
 
     bridge()
         .args(["read", "bridge_test_no_pk", "--from", "db"])
@@ -301,14 +360,11 @@ async fn test_pg_read_no_primary_key() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_read_composite_pk() {
-    let db_url = match get_database_url() {
-        Some(url) => url,
-        None => return,
-    };
-    ensure_tables(&db_url).await;
+    let db_url = test_database_url().await;
+    ensure_tables(db_url).await;
 
     let dir = TempDir::new().unwrap();
-    setup_pg(&dir, &db_url);
+    setup_pg(&dir, db_url);
 
     bridge()
         .args(["read", "bridge_test_composite_pk", "--from", "db"])
@@ -321,14 +377,11 @@ async fn test_pg_read_composite_pk() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_sql_injection_blocked() {
-    let db_url = match get_database_url() {
-        Some(url) => url,
-        None => return,
-    };
-    ensure_tables(&db_url).await;
+    let db_url = test_database_url().await;
+    ensure_tables(db_url).await;
 
     let dir = TempDir::new().unwrap();
-    setup_pg(&dir, &db_url);
+    setup_pg(&dir, db_url);
 
     // Attempt SQL injection via table name
     bridge()
@@ -342,13 +395,10 @@ async fn test_pg_sql_injection_blocked() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_status_health() {
-    let db_url = match get_database_url() {
-        Some(url) => url,
-        None => return,
-    };
+    let db_url = test_database_url().await;
 
     let dir = TempDir::new().unwrap();
-    setup_pg(&dir, &db_url);
+    setup_pg(&dir, db_url);
 
     bridge()
         .args(["status"])
