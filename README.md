@@ -83,13 +83,13 @@ Errors go to stderr as JSON with non-zero exit codes. Agents read stdout for dat
 **macOS / Linux:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/usebridgeai/cli/main/install.sh | sh
+curl -fsSL https://bridge.ls/install | sh
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
-irm https://raw.githubusercontent.com/usebridgeai/cli/main/install.ps1 | iex
+irm https://bridge.ls/install | iex
 ```
 
 **Homebrew (macOS):**
