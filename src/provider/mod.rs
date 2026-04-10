@@ -74,7 +74,7 @@ pub fn create_provider(type_name: &str) -> Result<Box<dyn Provider>> {
         "postgres" => Ok(Box::new(postgres::PostgresProvider::new())),
         _ => Err(BridgeError::ProviderNotFound(
             type_name.to_string(),
-            supported_provider_types().to_string(),
+            supported_provider_types(),
         )),
     }
 }
@@ -83,6 +83,6 @@ pub fn is_supported_provider_type(type_name: &str) -> bool {
     SUPPORTED_PROVIDER_TYPES.contains(&type_name)
 }
 
-pub fn supported_provider_types() -> &'static str {
-    "filesystem, postgres"
+pub fn supported_provider_types() -> String {
+    SUPPORTED_PROVIDER_TYPES.join(", ")
 }

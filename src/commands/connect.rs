@@ -90,7 +90,7 @@ fn validate_provider_type(provider_type: &str) -> Result<()> {
     } else {
         Err(BridgeError::InvalidProviderType(
             provider_type.to_string(),
-            supported_provider_types().to_string(),
+            supported_provider_types(),
         ))
     }
 }
