@@ -29,7 +29,7 @@ src/
 ├── error.rs             # BridgeError enum, JSON error output, URI redaction
 ├── commands/
 │   ├── init.rs          # bridge init
-│   ├── connect.rs       # bridge connect <uri> --as <name>
+│   ├── connect.rs       # bridge connect <target> --as <name> [--type <provider>]
 │   ├── remove.rs        # bridge remove <name>
 │   ├── ls.rs            # bridge ls --from <name>
 │   ├── read.rs          # bridge read <path> --from <name>

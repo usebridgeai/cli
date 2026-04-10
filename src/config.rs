@@ -125,6 +125,17 @@ pub fn infer_provider_type(uri: &str) -> Result<String> {
     }
 }
 
+/// Check whether a string is a valid bare environment variable name.
+pub fn is_valid_env_var_name(input: &str) -> bool {
+    let mut chars = input.chars();
+    match chars.next() {
+        Some(ch) if ch == '_' || ch.is_ascii_alphabetic() => {}
+        _ => return false,
+    }
+
+    chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+}
+
 /// Extract the file path from a file:// URI.
 pub fn parse_file_uri(uri: &str) -> Option<PathBuf> {
     uri.strip_prefix("file://").map(PathBuf::from)
@@ -205,5 +216,20 @@ mod tests {
             Some(PathBuf::from("./data"))
         );
         assert_eq!(parse_file_uri("postgres://foo"), None);
+    }
+
+    #[test]
+    fn test_valid_env_var_names() {
+        assert!(is_valid_env_var_name("DATABASE_URL"));
+        assert!(is_valid_env_var_name("PGHOST"));
+        assert!(is_valid_env_var_name("_INTERNAL_DB"));
+    }
+
+    #[test]
+    fn test_invalid_env_var_names() {
+        assert!(!is_valid_env_var_name("db-url"));
+        assert!(!is_valid_env_var_name("123DB"));
+        assert!(!is_valid_env_var_name("${DATABASE_URL}"));
+        assert!(!is_valid_env_var_name("postgres://localhost"));
     }
 }

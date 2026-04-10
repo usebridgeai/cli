@@ -30,7 +30,11 @@ async fn main() {
 
     let result = match cli.command {
         Commands::Init => commands::init::execute().await,
-        Commands::Connect { uri, name } => commands::connect::execute(uri, name).await,
+        Commands::Connect {
+            target,
+            provider_type,
+            name,
+        } => commands::connect::execute(target, provider_type, name).await,
         Commands::Remove { name } => commands::remove::execute(name).await,
         Commands::Status => commands::status::execute(timeout).await,
         Commands::Ls { from } => commands::ls::execute(from, timeout).await,
