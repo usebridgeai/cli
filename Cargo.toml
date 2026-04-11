@@ -10,6 +10,7 @@ homepage = "https://bridge.ls"
 authors = ["Gabriel Beslic", "Tomer Li Ran"]
 keywords = ["ai", "agents", "cli", "context", "storage"]
 categories = ["command-line-utilities", "database"]
+publish = false
 
 [[bin]]
 name = "bridge"

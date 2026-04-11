@@ -1,4 +1,25 @@
+# Build
+target/
+
+# Environment
+.env
+.env.*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Tools
 .claude
 CLAUDE.md
-target/
-.DS_Store
+
+# Coverage
+*.profraw
+lcov.info
+tarpaulin-report.html
