@@ -1,6 +1,6 @@
 [package]
 name = "bridge-cli"
-version = "1.0.0"
+version = "1.0.3"
 edition = "2021"
 rust-version = "1.94.1"
 description = "One CLI. Any storage. Every agent."
