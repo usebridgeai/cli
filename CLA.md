@@ -28,10 +28,8 @@ This is the same model used by Grafana, MinIO, GitLab, and many other dual-licen
 
 ## How to Sign
 
-When you open your first pull request, our CLA bot will post a comment asking you to sign. Simply reply with the following comment on your PR:
+When you open your first pull request, our CLA bot will automatically check whether you have signed the CLA. If you haven't, it will post a comment with a link to sign electronically through CLA Assistant.
 
-> I have read the CLA Document and I hereby sign the CLA
-
-You only need to sign once. Your signature is stored in the repository and will be recognized on future pull requests automatically.
+Click the link, sign in with your GitHub account, review and accept the agreement. You only need to sign once. All future pull requests will be recognized automatically.
 
 No manual edits to this file are required.
