@@ -11,6 +11,7 @@ authors = ["Gabriel Beslic", "Tomer Li Ran"]
 keywords = ["ai", "agents", "cli", "context", "storage"]
 categories = ["command-line-utilities", "database"]
 publish = false
+readme = "README.md"
 
 [[bin]]
 name = "bridge"
