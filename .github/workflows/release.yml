@@ -89,3 +89,15 @@ jobs:
             release/checksums.txt
             install.sh
             install.ps1
+
+  update-homebrew:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: mislav/bump-homebrew-formula-action@v3
+        with:
+          formula-name: bridge
+          homebrew-tap: usebridgeai/homebrew-tap
+          download-url: https://github.com/usebridgeai/cli/archive/refs/tags/${{ github.ref_name }}.tar.gz
+        env:
+          COMMITTER_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
