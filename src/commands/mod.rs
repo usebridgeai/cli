@@ -19,3 +19,4 @@ pub mod ls;
 pub mod read;
 pub mod remove;
 pub mod status;
+pub mod update;

@@ -63,6 +63,9 @@ pub enum BridgeError {
     #[error("Operation timed out after {0} seconds")]
     Timeout(u64),
 
+    #[error("Update failed: {0}")]
+    UpdateFailed(String),
+
     #[error("Invalid identifier: '{0}'. Table and column names must match [a-zA-Z_][a-zA-Z0-9_]*")]
     InvalidIdentifier(String),
 
@@ -96,6 +99,7 @@ impl BridgeError {
             Self::InvalidEnvVarName(_) => "invalid_env_var_name",
             Self::PathTraversal(_) => "path_traversal",
             Self::Timeout(_) => "timeout",
+            Self::UpdateFailed(_) => "update_failed",
             Self::InvalidIdentifier(_) => "invalid_identifier",
             Self::Io(_) => "io_error",
             Self::Sqlx(_) => "database_error",

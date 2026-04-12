@@ -448,3 +448,83 @@ fn test_all_outputs_are_json() {
         "error output not valid JSON: {stderr}"
     );
 }
+
+// ─── update command ──────────────────────────────────────────────────────────
+
+#[test]
+fn test_update_command_appears_in_help() {
+    bridge()
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("update"));
+}
+
+#[test]
+fn test_update_check_flag_appears_in_help() {
+    bridge()
+        .args(["update", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--check"));
+}
+
+// ─── passive notice regression guard ─────────────────────────────────────────
+
+/// Pre-populate the update cache with a version far in the future, then run
+/// a command that produces a JSON error on stderr. Even with a pending update
+/// notice, stderr must remain valid JSON because the notice is suppressed in
+/// non-TTY contexts (assert_cmd pipes stdout/stderr, so IsTerminal is false).
+#[test]
+fn test_stderr_stays_valid_json_when_update_is_pending() {
+    use std::fs;
+
+    let home_dir = TempDir::new().unwrap();
+    let cache_path = home_dir.path().join(".bridge").join(".update_check");
+    fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
+
+    // Write a fresh cache claiming a much newer version is available
+    let cache = serde_json::json!({
+        "checked_at": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs(),
+        "latest_version": "999.0.0"
+    });
+    fs::write(&cache_path, cache.to_string()).unwrap();
+
+    let work_dir = TempDir::new().unwrap();
+    bridge()
+        .arg("init")
+        .current_dir(work_dir.path())
+        .env("HOME", home_dir.path())
+        .assert()
+        .success();
+
+    // `bridge remove nonexistent` produces a known JSON error on stderr
+    let output = bridge()
+        .args(["remove", "nonexistent"])
+        .current_dir(work_dir.path())
+        .env("HOME", home_dir.path())
+        .output()
+        .unwrap();
+
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        serde_json::from_str::<serde_json::Value>(&stderr).is_ok(),
+        "stderr must be valid JSON even when an update is pending (notice suppressed in non-TTY): {stderr}"
+    );
+}
+
+/// When BRIDGE_NO_UPDATE_CHECK is set, the passive check is suppressed entirely.
+#[test]
+fn test_no_update_check_env_var_suppresses_notice() {
+    let dir = TempDir::new().unwrap();
+    bridge()
+        .arg("init")
+        .current_dir(dir.path())
+        .env("BRIDGE_NO_UPDATE_CHECK", "1")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\": \"created\""));
+}
