@@ -14,7 +14,9 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use crate::error::{BridgeError, Result};
-use crate::update::{detect_install_method, fetch_latest_version, is_newer, write_cache, InstallMethod};
+use crate::update::{
+    detect_install_method, fetch_latest_version, is_newer, write_cache, InstallMethod,
+};
 use serde_json::json;
 
 pub async fn execute(check_only: bool) -> Result<()> {
@@ -22,11 +24,12 @@ pub async fn execute(check_only: bool) -> Result<()> {
 
     if check_only {
         // Always do a fresh network check for --check
-        let latest = fetch_latest_version()
-            .await
-            .ok_or_else(|| BridgeError::UpdateFailed(
-                "Could not fetch latest version from GitHub. Check your internet connection.".to_string(),
-            ))?;
+        let latest = fetch_latest_version().await.ok_or_else(|| {
+            BridgeError::UpdateFailed(
+                "Could not fetch latest version from GitHub. Check your internet connection."
+                    .to_string(),
+            )
+        })?;
 
         // Cache the result so the passive check is up to date
         write_cache(&latest);
@@ -42,11 +45,12 @@ pub async fn execute(check_only: bool) -> Result<()> {
     }
 
     // Install path — fetch latest first
-    let latest = fetch_latest_version()
-        .await
-        .ok_or_else(|| BridgeError::UpdateFailed(
-            "Could not fetch latest version from GitHub. Check your internet connection.".to_string(),
-        ))?;
+    let latest = fetch_latest_version().await.ok_or_else(|| {
+        BridgeError::UpdateFailed(
+            "Could not fetch latest version from GitHub. Check your internet connection."
+                .to_string(),
+        )
+    })?;
 
     if !is_newer(current, &latest) {
         let output = json!({
@@ -89,7 +93,11 @@ pub async fn execute(check_only: bool) -> Result<()> {
 
         InstallMethod::Windows => {
             let status = std::process::Command::new("powershell")
-                .args(["-NoProfile", "-Command", "irm https://bridge.ls/install | iex"])
+                .args([
+                    "-NoProfile",
+                    "-Command",
+                    "irm https://bridge.ls/install | iex",
+                ])
                 .status()?;
 
             if !status.success() {

@@ -36,7 +36,7 @@ pub struct UpdateCache {
 #[derive(Debug, PartialEq)]
 pub enum InstallMethod {
     Homebrew,
-    Script,  // curl | sh  (macOS / Linux)
+    Script, // curl | sh  (macOS / Linux)
     #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
     Windows, // iwr | iex  (Windows PowerShell)
 }
