@@ -66,8 +66,10 @@ jobs:
 
           codesign --verify --verbose target/${{ matrix.target }}/release/bridge
 
+          rm -f $RUNNER_TEMP/cert.p12
+
       - name: Notarize binary (macOS)
-        if: runner.os == 'macOS' && env.APPLE_ID != ''
+        if: runner.os == 'macOS' && env.APPLE_CERT_P12 != '' && env.APPLE_ID != ''
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
