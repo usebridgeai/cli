@@ -1,4 +1,4 @@
-// Bridge CLI - One CLI. Any storage. Every agent.
+// Bridge CLI - Any storage. Any agent. One CLI
 // Copyright (c) 2026 Gabriel Beslic & Tomer Li Ran
 //
 // This program is free software: you can redistribute it and/or modify
@@ -20,7 +20,7 @@ use clap_complete::Shell;
 #[command(
     name = "bridge",
     version,
-    about = "One CLI. Any storage. Every agent.",
+    about = "Any storage. Any agent. One CLI",
     long_about = "Bridge is a unified CLI that lets AI agents read context from any data source through a single interface."
 )]
 pub struct Cli {
