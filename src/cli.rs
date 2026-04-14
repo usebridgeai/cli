@@ -83,6 +83,13 @@ pub enum Commands {
         limit: usize,
     },
 
+    /// Update bridge to the latest version
+    Update {
+        /// Check for available updates without installing
+        #[arg(long)]
+        check: bool,
+    },
+
     /// Generate shell completions
     Completions {
         /// Shell to generate completions for

@@ -19,6 +19,7 @@ mod config;
 mod context;
 mod error;
 mod provider;
+mod update;
 
 use clap::{CommandFactory, Parser};
 use cli::{Cli, Commands};
@@ -27,6 +28,14 @@ use cli::{Cli, Commands};
 async fn main() {
     let cli = Cli::parse();
     let timeout = cli.timeout;
+
+    // Suppress the passive notice when the user is already running `bridge update`
+    let is_update_cmd = matches!(cli.command, Commands::Update { .. });
+
+    // Check for available updates from the local cache (no blocking I/O).
+    // If the cache is stale, a background HTTP fetch is started concurrently
+    // with the main command and awaited (with timeout) before exit.
+    let mut update_notice = update::check_update_notice();
 
     let result = match cli.command {
         Commands::Init => commands::init::execute().await,
@@ -41,6 +50,7 @@ async fn main() {
         Commands::Read { path, from, limit } => {
             commands::read::execute(path, from, limit, timeout).await
         }
+        Commands::Update { check } => commands::update::execute(check).await,
         Commands::Completions { shell } => {
             clap_complete::generate(shell, &mut Cli::command(), "bridge", &mut std::io::stdout());
             return;
@@ -49,6 +59,34 @@ async fn main() {
 
     if let Err(e) = result {
         eprintln!("{}", serde_json::to_string_pretty(&e.to_json()).unwrap());
+        // Skip the update notice on error — stderr must stay valid JSON,
+        // and the user cares about the error, not the upgrade prompt.
+        update::wait_for_refresh(&mut update_notice).await;
         std::process::exit(e.exit_code());
+    }
+
+    // Print update notice to stderr for interactive sessions only.
+    // Suppressed when: non-TTY (agents, pipes, CI), BRIDGE_NO_UPDATE_CHECK is set,
+    // or the user is already running `bridge update`.
+    if !is_update_cmd {
+        print_update_notice(update_notice.version.as_deref());
+    }
+
+    // Give the background cache refresh a chance to finish before the runtime
+    // shuts down. This runs after all output is printed, so the user sees no
+    // delay for fast commands. Capped at 500 ms — if GitHub is slow we just
+    // skip; the cache will be refreshed on the next invocation.
+    update::wait_for_refresh(&mut update_notice).await;
+}
+
+fn print_update_notice(version: Option<&str>) {
+    use std::io::IsTerminal;
+    if let Some(v) = version {
+        if std::io::stderr().is_terminal() {
+            eprintln!();
+            eprintln!("  A new version of bridge is available: {v}");
+            eprintln!("  Run `bridge update` to upgrade.");
+            eprintln!();
+        }
     }
 }
