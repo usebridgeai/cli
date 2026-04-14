@@ -57,6 +57,14 @@ async fn main() {
         }
     };
 
+    if let Err(e) = result {
+        eprintln!("{}", serde_json::to_string_pretty(&e.to_json()).unwrap());
+        // Skip the update notice on error — stderr must stay valid JSON,
+        // and the user cares about the error, not the upgrade prompt.
+        update::wait_for_refresh(&mut update_notice).await;
+        std::process::exit(e.exit_code());
+    }
+
     // Print update notice to stderr for interactive sessions only.
     // Suppressed when: non-TTY (agents, pipes, CI), BRIDGE_NO_UPDATE_CHECK is set,
     // or the user is already running `bridge update`.
@@ -69,11 +77,6 @@ async fn main() {
     // delay for fast commands. Capped at 500 ms — if GitHub is slow we just
     // skip; the cache will be refreshed on the next invocation.
     update::wait_for_refresh(&mut update_notice).await;
-
-    if let Err(e) = result {
-        eprintln!("{}", serde_json::to_string_pretty(&e.to_json()).unwrap());
-        std::process::exit(e.exit_code());
-    }
 }
 
 fn print_update_notice(version: Option<&str>) {
