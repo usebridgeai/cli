@@ -115,6 +115,8 @@ pub fn infer_provider_type(uri: &str) -> Result<String> {
         Ok("filesystem".to_string())
     } else if uri.starts_with("postgres://") || uri.starts_with("postgresql://") {
         Ok("postgres".to_string())
+    } else if uri.starts_with("sqlite://") {
+        Ok("sqlite".to_string())
     } else if uri.contains("://") {
         let scheme = uri.split("://").next().unwrap_or("");
         Err(BridgeError::InvalidUri(format!(
@@ -193,6 +195,15 @@ mod tests {
         assert_eq!(
             infer_provider_type("postgresql://localhost/db").unwrap(),
             "postgres"
+        );
+    }
+
+    #[test]
+    fn test_infer_provider_type_sqlite() {
+        assert_eq!(infer_provider_type("sqlite://./data.db").unwrap(), "sqlite");
+        assert_eq!(
+            infer_provider_type("sqlite:///tmp/test.sqlite").unwrap(),
+            "sqlite"
         );
     }
 

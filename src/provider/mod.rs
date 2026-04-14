@@ -15,6 +15,7 @@
 
 pub mod filesystem;
 pub mod postgres;
+pub mod sqlite;
 
 use crate::config::ProviderConfig;
 use crate::context::{ContextEntry, ContextValue};
@@ -22,7 +23,7 @@ use crate::error::{BridgeError, Result};
 use async_trait::async_trait;
 use serde::Serialize;
 
-pub const SUPPORTED_PROVIDER_TYPES: &[&str] = &["filesystem", "postgres"];
+pub const SUPPORTED_PROVIDER_TYPES: &[&str] = &["filesystem", "postgres", "sqlite"];
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ProviderCapabilities {
@@ -72,6 +73,7 @@ pub fn create_provider(type_name: &str) -> Result<Box<dyn Provider>> {
     match type_name {
         "filesystem" => Ok(Box::new(filesystem::FilesystemProvider::new())),
         "postgres" => Ok(Box::new(postgres::PostgresProvider::new())),
+        "sqlite" => Ok(Box::new(sqlite::SqliteProvider::new())),
         _ => Err(BridgeError::ProviderNotFound(
             type_name.to_string(),
             supported_provider_types(),
