@@ -32,9 +32,10 @@ async fn main() {
     // Suppress the passive notice when the user is already running `bridge update`
     let is_update_cmd = matches!(cli.command, Commands::Update { .. });
 
-    // Check for available updates synchronously from cache only.
-    // If the cache is stale, a background task refreshes it for the next run.
-    let update_notice = update::check_update_notice();
+    // Check for available updates from the local cache (no blocking I/O).
+    // If the cache is stale, a background HTTP fetch is started concurrently
+    // with the main command and awaited (with timeout) before exit.
+    let mut update_notice = update::check_update_notice();
 
     let result = match cli.command {
         Commands::Init => commands::init::execute().await,
@@ -60,8 +61,14 @@ async fn main() {
     // Suppressed when: non-TTY (agents, pipes, CI), BRIDGE_NO_UPDATE_CHECK is set,
     // or the user is already running `bridge update`.
     if !is_update_cmd {
-        print_update_notice(update_notice);
+        print_update_notice(update_notice.version.as_deref());
     }
+
+    // Give the background cache refresh a chance to finish before the runtime
+    // shuts down. This runs after all output is printed, so the user sees no
+    // delay for fast commands. Capped at 500 ms — if GitHub is slow we just
+    // skip; the cache will be refreshed on the next invocation.
+    update::wait_for_refresh(&mut update_notice).await;
 
     if let Err(e) = result {
         eprintln!("{}", serde_json::to_string_pretty(&e.to_json()).unwrap());
@@ -69,7 +76,7 @@ async fn main() {
     }
 }
 
-fn print_update_notice(version: Option<String>) {
+fn print_update_notice(version: Option<&str>) {
     use std::io::IsTerminal;
     if let Some(v) = version {
         if std::io::stderr().is_terminal() {

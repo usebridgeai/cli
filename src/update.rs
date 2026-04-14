@@ -39,7 +39,7 @@ pub struct UpdateCache {
 #[derive(Debug, PartialEq)]
 pub enum InstallMethod {
     Homebrew,
-    Script,  // curl | sh  (macOS / Linux)
+    Script, // curl | sh  (macOS / Linux)
     #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
     Windows, // iwr | iex  (Windows PowerShell)
     Unknown, // cargo install, nix, manual, etc.
@@ -120,31 +120,41 @@ pub fn write_cache_to(latest_version: &str, path: &Path) {
     }
 }
 
-/// Returns the latest version string if a cached update is available,
-/// and the cache is fresh (< 24 h old).
+/// Result of the passive update check.
+pub struct UpdateNotice {
+    /// Version string to show the user, if an update is available from cache.
+    pub version: Option<String>,
+    /// Background refresh handle — must be awaited (with timeout) before exit
+    /// to ensure the cache is populated for the next invocation.
+    pub refresh: Option<tokio::task::JoinHandle<()>>,
+}
+
+/// Checks for available updates from the local cache (no blocking network I/O).
 ///
-/// If the cache is stale or missing, spawns a background task to refresh
-/// it and returns None — the notice will appear on the next invocation.
-///
-/// This function performs only file I/O in the calling thread; network
-/// access is deferred to the background task.
+/// If the cache is stale or missing, spawns a background task to fetch the
+/// latest version from GitHub. The caller **must** await `refresh` before the
+/// process exits (see `wait_for_refresh`), otherwise the tokio runtime will
+/// drop the task and the cache will never populate.
 ///
 /// ```text
 /// check_update_notice()
 ///      │
-///      ├─ BRIDGE_NO_UPDATE_CHECK set? → None
+///      ├─ BRIDGE_NO_UPDATE_CHECK set? → no version, no refresh
 ///      │
 ///      ├─ read cache file (sync, < 1 ms)
-///      │       ├─ fresh (< 24 h): compare versions → Some(version) or None
-///      │       └─ stale / missing: spawn background HTTP refresh → None
+///      │       ├─ fresh (< 24 h): compare versions → Some(version), no refresh
+///      │       └─ stale / missing: spawn background HTTP refresh → no version
 ///      │                 └─ [background] fetch_latest_version()
 ///      │                            └─ write_cache() for next invocation
 ///      │
-///      └─ caller prints notice only if Some() AND stderr is_terminal()
+///      └─ caller prints notice only if version.is_some() AND stderr is_terminal()
 /// ```
-pub fn check_update_notice() -> Option<String> {
+pub fn check_update_notice() -> UpdateNotice {
     if std::env::var("BRIDGE_NO_UPDATE_CHECK").is_ok() {
-        return None;
+        return UpdateNotice {
+            version: None,
+            refresh: None,
+        };
     }
 
     let current = env!("CARGO_PKG_VERSION");
@@ -153,21 +163,37 @@ pub fn check_update_notice() -> Option<String> {
     match cache {
         Some(c) if now_secs().saturating_sub(c.checked_at) < CACHE_TTL_SECS => {
             // Cache is fresh — use cached value, no network call
-            if is_newer(current, &c.latest_version) {
+            let version = if is_newer(current, &c.latest_version) {
                 Some(c.latest_version)
             } else {
                 None
+            };
+            UpdateNotice {
+                version,
+                refresh: None,
             }
         }
         _ => {
             // Cache is stale or missing — refresh in background for next invocation
-            tokio::spawn(async move {
+            let handle = tokio::spawn(async move {
                 if let Some(latest) = fetch_latest_version().await {
                     write_cache(&latest);
                 }
             });
-            None
+            UpdateNotice {
+                version: None,
+                refresh: Some(handle),
+            }
         }
+    }
+}
+
+/// Awaits the background cache refresh (if any) with a short timeout.
+/// Call this after the main command has finished and output has been printed,
+/// so the user perceives no delay for fast commands.
+pub async fn wait_for_refresh(notice: &mut UpdateNotice) {
+    if let Some(handle) = notice.refresh.take() {
+        let _ = tokio::time::timeout(std::time::Duration::from_millis(500), handle).await;
     }
 }
 
@@ -395,7 +421,10 @@ mod tests {
         write_cache_to("1.0.0", &path);
 
         let tmp = path.with_extension("tmp");
-        assert!(!tmp.exists(), "temp file should be renamed away after write");
+        assert!(
+            !tmp.exists(),
+            "temp file should be renamed away after write"
+        );
         assert!(path.exists(), "final cache file should exist");
     }
 
@@ -422,19 +451,28 @@ mod tests {
         #[test]
         fn test_homebrew_cellar_macos_apple_silicon() {
             let exe = Path::new("/opt/homebrew/Cellar/bridge/1.0.3/bin/bridge");
-            assert_eq!(detect_install_method_inner(Some(exe), None), InstallMethod::Homebrew);
+            assert_eq!(
+                detect_install_method_inner(Some(exe), None),
+                InstallMethod::Homebrew
+            );
         }
 
         #[test]
         fn test_homebrew_cellar_macos_intel() {
             let exe = Path::new("/usr/local/Cellar/bridge/1.0.3/bin/bridge");
-            assert_eq!(detect_install_method_inner(Some(exe), None), InstallMethod::Homebrew);
+            assert_eq!(
+                detect_install_method_inner(Some(exe), None),
+                InstallMethod::Homebrew
+            );
         }
 
         #[test]
         fn test_linuxbrew_cellar() {
             let exe = Path::new("/home/linuxbrew/.linuxbrew/Cellar/bridge/1.0.3/bin/bridge");
-            assert_eq!(detect_install_method_inner(Some(exe), None), InstallMethod::Homebrew);
+            assert_eq!(
+                detect_install_method_inner(Some(exe), None),
+                InstallMethod::Homebrew
+            );
         }
 
         #[test]
@@ -459,24 +497,36 @@ mod tests {
         fn test_script_install_detected() {
             let home = home_dir().unwrap();
             let exe = home.join(".bridge").join("bin").join("bridge");
-            assert_eq!(detect_install_method_inner(Some(&exe), None), InstallMethod::Script);
+            assert_eq!(
+                detect_install_method_inner(Some(&exe), None),
+                InstallMethod::Script
+            );
         }
 
         #[test]
         fn test_cargo_install_returns_unknown() {
             let exe = Path::new("/home/user/.cargo/bin/bridge");
-            assert_eq!(detect_install_method_inner(Some(exe), None), InstallMethod::Unknown);
+            assert_eq!(
+                detect_install_method_inner(Some(exe), None),
+                InstallMethod::Unknown
+            );
         }
 
         #[test]
         fn test_nix_install_returns_unknown() {
             let exe = Path::new("/nix/store/abc123-bridge-1.0.3/bin/bridge");
-            assert_eq!(detect_install_method_inner(Some(exe), None), InstallMethod::Unknown);
+            assert_eq!(
+                detect_install_method_inner(Some(exe), None),
+                InstallMethod::Unknown
+            );
         }
 
         #[test]
         fn test_no_exe_path_returns_unknown() {
-            assert_eq!(detect_install_method_inner(None, None), InstallMethod::Unknown);
+            assert_eq!(
+                detect_install_method_inner(None, None),
+                InstallMethod::Unknown
+            );
         }
     }
 }
