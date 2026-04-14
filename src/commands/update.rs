@@ -113,6 +113,15 @@ pub async fn execute(check_only: bool) -> Result<()> {
             });
             println!("{}", serde_json::to_string_pretty(&output)?);
         }
+
+        InstallMethod::Unknown => {
+            let output = json!({
+                "status": "manual_required",
+                "latest_version": latest,
+                "instruction": "Could not detect install method. Download the latest release from https://github.com/usebridgeai/cli/releases"
+            });
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        }
     }
 
     Ok(())

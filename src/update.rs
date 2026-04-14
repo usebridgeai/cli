@@ -31,14 +31,18 @@ pub struct UpdateCache {
 ///   Binary path                              → Detected method
 ///   /opt/homebrew/Cellar/bridge/…            → Homebrew
 ///   /usr/local/Cellar/bridge/…               → Homebrew
+///   /home/linuxbrew/.linuxbrew/Cellar/…      → Homebrew
+///   HOMEBREW_PREFIX/…                        → Homebrew
 ///   ~/.bridge/bin/bridge (macOS/Linux)       → Script
 ///   %USERPROFILE%\.bridge\bin\bridge.exe     → Windows
+///   anything else                            → Unknown (manual update)
 #[derive(Debug, PartialEq)]
 pub enum InstallMethod {
     Homebrew,
-    Script, // curl | sh  (macOS / Linux)
+    Script,  // curl | sh  (macOS / Linux)
     #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
     Windows, // iwr | iex  (Windows PowerShell)
+    Unknown, // cargo install, nix, manual, etc.
 }
 
 /// Compare two semver-like strings of the form [v]X.Y.Z[-suffix].
@@ -191,20 +195,72 @@ pub async fn fetch_latest_version() -> Option<String> {
 }
 
 /// Detects how bridge was installed from the current executable path and OS.
+///
+/// Resolution order (first match wins):
+/// 1. Windows target → Windows
+/// 2. Resolve symlinks, then check if the real path lives under a Homebrew prefix
+///    (Cellar dir, /homebrew/ component, or HOMEBREW_PREFIX env)
+/// 3. Path under ~/.bridge/bin → Script (curl | sh install)
+/// 4. Anything else → Unknown (user must update manually)
 pub fn detect_install_method() -> InstallMethod {
+    detect_install_method_inner(
+        std::env::current_exe().ok().as_deref(),
+        std::env::var("HOMEBREW_PREFIX").ok().as_deref(),
+    )
+}
+
+fn detect_install_method_inner(exe: Option<&Path>, homebrew_prefix: Option<&str>) -> InstallMethod {
     #[cfg(target_os = "windows")]
-    return InstallMethod::Windows;
+    {
+        let _ = (exe, homebrew_prefix);
+        return InstallMethod::Windows;
+    }
 
     #[cfg(not(target_os = "windows"))]
     {
-        if let Ok(exe) = std::env::current_exe() {
-            let path = exe.to_string_lossy();
-            if path.contains("/Cellar/") || path.contains("/homebrew/") {
-                return InstallMethod::Homebrew;
+        // Resolve symlinks so /opt/homebrew/bin/bridge → /opt/homebrew/Cellar/…/bridge
+        let resolved = exe.and_then(|p| std::fs::canonicalize(p).ok());
+        let path_str = resolved
+            .as_deref()
+            .or(exe)
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default();
+
+        if is_homebrew_path(&path_str, homebrew_prefix) {
+            return InstallMethod::Homebrew;
+        }
+
+        // ~/.bridge/bin/bridge is the standard script install location
+        if let Some(home) = home_dir() {
+            let script_dir = home.join(".bridge").join("bin");
+            if let Some(exe_path) = resolved.as_deref().or(exe) {
+                if exe_path.starts_with(&script_dir) {
+                    return InstallMethod::Script;
+                }
             }
         }
-        InstallMethod::Script
+
+        InstallMethod::Unknown
     }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn is_homebrew_path(path: &str, homebrew_prefix: Option<&str>) -> bool {
+    // Standard Homebrew Cellar paths (macOS Intel, Apple Silicon, Linuxbrew)
+    if path.contains("/Cellar/") {
+        return true;
+    }
+    // Covers /opt/homebrew/..., /home/linuxbrew/.linuxbrew/...
+    if path.contains("/homebrew/") || path.contains("/linuxbrew/") {
+        return true;
+    }
+    // Custom HOMEBREW_PREFIX (e.g. user-specified install location)
+    if let Some(prefix) = homebrew_prefix {
+        if !prefix.is_empty() && path.starts_with(prefix) {
+            return true;
+        }
+    }
+    false
 }
 
 #[cfg(test)]
@@ -355,5 +411,72 @@ mod tests {
         assert_eq!(cache.latest_version, "2.0.0");
         // No leftover temp file
         assert!(!path.with_extension("tmp").exists());
+    }
+
+    // ─── detect_install_method ───────────────────────────────────────────
+
+    #[cfg(not(target_os = "windows"))]
+    mod detect {
+        use super::*;
+
+        #[test]
+        fn test_homebrew_cellar_macos_apple_silicon() {
+            let exe = Path::new("/opt/homebrew/Cellar/bridge/1.0.3/bin/bridge");
+            assert_eq!(detect_install_method_inner(Some(exe), None), InstallMethod::Homebrew);
+        }
+
+        #[test]
+        fn test_homebrew_cellar_macos_intel() {
+            let exe = Path::new("/usr/local/Cellar/bridge/1.0.3/bin/bridge");
+            assert_eq!(detect_install_method_inner(Some(exe), None), InstallMethod::Homebrew);
+        }
+
+        #[test]
+        fn test_linuxbrew_cellar() {
+            let exe = Path::new("/home/linuxbrew/.linuxbrew/Cellar/bridge/1.0.3/bin/bridge");
+            assert_eq!(detect_install_method_inner(Some(exe), None), InstallMethod::Homebrew);
+        }
+
+        #[test]
+        fn test_homebrew_prefix_env_custom_location() {
+            let exe = Path::new("/my/custom/brew/bin/bridge");
+            assert_eq!(
+                detect_install_method_inner(Some(exe), Some("/my/custom/brew")),
+                InstallMethod::Homebrew,
+            );
+        }
+
+        #[test]
+        fn test_homebrew_prefix_env_empty_is_ignored() {
+            let exe = Path::new("/some/random/path/bridge");
+            assert_ne!(
+                detect_install_method_inner(Some(exe), Some("")),
+                InstallMethod::Homebrew,
+            );
+        }
+
+        #[test]
+        fn test_script_install_detected() {
+            let home = home_dir().unwrap();
+            let exe = home.join(".bridge").join("bin").join("bridge");
+            assert_eq!(detect_install_method_inner(Some(&exe), None), InstallMethod::Script);
+        }
+
+        #[test]
+        fn test_cargo_install_returns_unknown() {
+            let exe = Path::new("/home/user/.cargo/bin/bridge");
+            assert_eq!(detect_install_method_inner(Some(exe), None), InstallMethod::Unknown);
+        }
+
+        #[test]
+        fn test_nix_install_returns_unknown() {
+            let exe = Path::new("/nix/store/abc123-bridge-1.0.3/bin/bridge");
+            assert_eq!(detect_install_method_inner(Some(exe), None), InstallMethod::Unknown);
+        }
+
+        #[test]
+        fn test_no_exe_path_returns_unknown() {
+            assert_eq!(detect_install_method_inner(None, None), InstallMethod::Unknown);
+        }
     }
 }
