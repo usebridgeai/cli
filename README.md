@@ -12,7 +12,7 @@
   <a href="https://bridge.ls"><img src="https://img.shields.io/badge/website-bridge.ls-blueviolet.svg" alt="Website" /></a>
 </p>
 
-**One CLI. Any storage. Every agent.**
+**Any storage. Any agent. One CLI**
 
 Bridge gives AI agents a single interface to read structured context from any storage backend. One config file, one binary, JSON on stdout. The missing layer between your agent framework and your data.
 
@@ -135,6 +135,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design.
 | Provider   | URI                       | `ls` returns          | `read` returns                                |
 | ---------- | ------------------------- | --------------------- | --------------------------------------------- |
 | Filesystem | `file://./path`           | Files and directories | File contents (text, JSON, or base64)         |
+| SQLite     | `sqlite://./local.db`     | Tables                | All rows (`users`) or single row (`users/42`) |
 | Postgres   | `postgres://host:port/db` | Tables                | All rows (`users`) or single row (`users/42`) |
 
 ## Commands
@@ -159,6 +160,9 @@ providers:
   files:
     type: filesystem
     uri: file://./docs
+  localdb:
+    type: sqlite
+    uri: sqlite://./local.db?mode=rwc
   db:
     type: postgres
     uri: ${DATABASE_URL}
@@ -171,15 +175,17 @@ Bridge supports two setup patterns:
 - For quick local setup, pass a literal URI such as `postgres://localhost:5432/mydb`.
 - For safer shared or production setups, pass a bare environment variable name such as `DATABASE_URL` together with `--type postgres`. Bridge writes `uri: ${DATABASE_URL}` into `bridge.yaml` and resolves the real value at runtime.
 
+SQLite is also supported through literal URIs such as `sqlite://./local.db`, or `sqlite://./local.db?mode=rwc` when you want SQLite to create the file on first use.
+
 Bridge reads environment variables from the process environment when commands run. It does not automatically load a `.env` file for you.
 
 ## Security
 
 - **Path traversal protection:** Filesystem provider uses `canonicalize()` + `starts_with()` to block directory escape
-- **SQL injection protection:** Postgres provider validates identifiers with strict regex and uses parameterized queries
+- **SQL injection protection:** SQLite and Postgres providers validate identifiers with strict regex and use parameterized row reads
 - **Credential redaction:** URIs with passwords are redacted in all user-facing output
 - **Supply chain:** GitHub Actions pinned to SHA hashes
-- **Testing:** 56 tests across CLI integration, filesystem, and Postgres (including Docker-based Postgres tests in CI)
+- **Testing:** Integration coverage across the CLI, filesystem, SQLite, and Postgres providers (including Docker-based Postgres tests in CI)
 
 ## Roadmap
 
@@ -189,8 +195,8 @@ Bridge reads environment variables from the process environment when commands ru
 - [x] Shell completions (bash, zsh, fish, PowerShell)
 - [x] Structured JSON output with metadata
 - [x] Environment variable expansion in config
+- [x] SQLite provider
 - [ ] Write support (`bridge write`)
-- [ ] SQLite provider
 - [ ] S3 provider
 - [ ] Vector store providers (Qdrant, Pinecone)
 
