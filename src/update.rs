@@ -107,7 +107,12 @@ pub fn write_cache_to(latest_version: &str, path: &Path) {
         latest_version: latest_version.to_string(),
     };
     if let Ok(json) = serde_json::to_string(&cache) {
-        let _ = std::fs::write(path, json);
+        // Atomic write: temp file + rename to avoid partial/corrupt cache
+        // from crashes or concurrent bridge invocations.
+        let tmp = path.with_extension("tmp");
+        if std::fs::write(&tmp, &json).is_ok() {
+            let _ = std::fs::rename(&tmp, path);
+        }
     }
 }
 
@@ -324,5 +329,31 @@ mod tests {
         fs::write(&path, "not valid json at all!!!").unwrap();
 
         assert!(read_cache_from(&path).is_none());
+    }
+
+    #[test]
+    fn test_write_cache_leaves_no_temp_file() {
+        let dir = TempDir::new().unwrap();
+        let path = temp_cache_path(&dir);
+
+        write_cache_to("1.0.0", &path);
+
+        let tmp = path.with_extension("tmp");
+        assert!(!tmp.exists(), "temp file should be renamed away after write");
+        assert!(path.exists(), "final cache file should exist");
+    }
+
+    #[test]
+    fn test_write_cache_is_atomic_overwrites_cleanly() {
+        let dir = TempDir::new().unwrap();
+        let path = temp_cache_path(&dir);
+
+        write_cache_to("1.0.0", &path);
+        write_cache_to("2.0.0", &path);
+
+        let cache = read_cache_from(&path).expect("cache should be readable after overwrite");
+        assert_eq!(cache.latest_version, "2.0.0");
+        // No leftover temp file
+        assert!(!path.with_extension("tmp").exists());
     }
 }
