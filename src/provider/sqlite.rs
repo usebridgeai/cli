@@ -287,8 +287,8 @@ impl Provider for SqliteProvider {
 
         if !skip_exists_check && !std::path::Path::new(&parsed.db_path).exists() {
             return Err(BridgeError::ProviderError(format!(
-                "SQLite database file not found: {}",
-                parsed.db_path
+                "SQLite database file not found: {}. To create it on connect, append ?mode=rwc (e.g. sqlite://{}?mode=rwc).",
+                parsed.db_path, parsed.db_path
             )));
         }
 

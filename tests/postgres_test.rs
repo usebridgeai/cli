@@ -407,3 +407,271 @@ async fn test_pg_status_health() {
         .success()
         .stdout(predicate::str::contains("\"connected\": true"));
 }
+
+// ─── connect-time verification ───────────────────────────────────────────────
+
+/// Replace the database name (everything after the last '/') in a postgres URL.
+/// Used to build a URL that points at the same host/port/credentials but a
+/// database that does not exist on the server.
+fn replace_database_name(url: &str, new_db: &str) -> String {
+    match url.rfind('/') {
+        Some(pos) => {
+            // Trim any existing query string from the db portion.
+            let base = &url[..=pos];
+            format!("{base}{new_db}")
+        }
+        None => panic!("malformed DATABASE_URL: {url}"),
+    }
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_pg_connect_verifies_reachable_uri() {
+    let db_url = test_database_url().await;
+    let dir = TempDir::new().unwrap();
+    bridge()
+        .arg("init")
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    bridge()
+        .args(["connect", db_url, "--as", "db"])
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"type\": \"postgres\""))
+        .stdout(predicate::str::contains("\"status\": \"connected\""))
+        .stdout(predicate::str::contains("\"verified\": true"))
+        .stdout(predicate::str::contains("\"latency_ms\""));
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_pg_connect_fails_verification_on_unreachable_host() {
+    // Must have a working DATABASE_URL env so we know we're actually running
+    // in the postgres test suite; we ignore its value and target port 1 which
+    // will be refused fast on localhost.
+    let _ = test_database_url().await;
+
+    let dir = TempDir::new().unwrap();
+    bridge()
+        .arg("init")
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    bridge()
+        .args([
+            "--timeout",
+            "3",
+            "connect",
+            "postgres://postgres:postgres@127.0.0.1:1/postgres",
+            "--as",
+            "bad",
+        ])
+        .current_dir(dir.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("connection_verification_failed"));
+
+    // Nothing should have been written to bridge.yaml
+    let config = std::fs::read_to_string(dir.path().join("bridge.yaml")).unwrap();
+    assert!(!config.contains("bad:"));
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_pg_connect_fails_verification_on_missing_database() {
+    let db_url = test_database_url().await;
+    let bogus = replace_database_name(db_url, "bridge_definitely_not_a_real_db_9f3c1");
+
+    let dir = TempDir::new().unwrap();
+    bridge()
+        .arg("init")
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    bridge()
+        .args(["--timeout", "5", "connect", &bogus, "--as", "bad"])
+        .current_dir(dir.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("connection_verification_failed"));
+
+    let config = std::fs::read_to_string(dir.path().join("bridge.yaml")).unwrap();
+    assert!(!config.contains("bad:"));
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_pg_connect_no_verify_saves_unreachable_target() {
+    let _ = test_database_url().await;
+
+    let dir = TempDir::new().unwrap();
+    bridge()
+        .arg("init")
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    bridge()
+        .args([
+            "connect",
+            "postgres://postgres:postgres@127.0.0.1:1/postgres",
+            "--as",
+            "bad",
+            "--no-verify",
+        ])
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\": \"saved_unverified\""))
+        .stdout(predicate::str::contains("\"verified\": false"));
+
+    let config = std::fs::read_to_string(dir.path().join("bridge.yaml")).unwrap();
+    assert!(config.contains("127.0.0.1:1"));
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_pg_connect_env_var_target_verifies_when_var_is_set() {
+    let db_url = test_database_url().await;
+    let dir = TempDir::new().unwrap();
+    bridge()
+        .arg("init")
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    // Use a custom env var name so we don't collide with the ambient DATABASE_URL
+    // (which is used by the harness). We pass it explicitly to the child process.
+    bridge()
+        .env("BRIDGE_TEST_PG_URL", db_url)
+        .args([
+            "connect",
+            "BRIDGE_TEST_PG_URL",
+            "--type",
+            "postgres",
+            "--as",
+            "db",
+        ])
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "\"uri\": \"${BRIDGE_TEST_PG_URL}\"",
+        ))
+        .stdout(predicate::str::contains("\"verified\": true"));
+
+    // The saved URI must remain the template, not the expanded value.
+    let config = std::fs::read_to_string(dir.path().join("bridge.yaml")).unwrap();
+    assert!(config.contains("uri: ${BRIDGE_TEST_PG_URL}"));
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_pg_connect_env_var_target_saved_unverified_when_var_unset() {
+    let _ = test_database_url().await;
+
+    let dir = TempDir::new().unwrap();
+    bridge()
+        .arg("init")
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    bridge()
+        .env_remove("BRIDGE_TEST_PG_UNSET_URL")
+        .args([
+            "connect",
+            "BRIDGE_TEST_PG_UNSET_URL",
+            "--type",
+            "postgres",
+            "--as",
+            "db",
+        ])
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\": \"saved_unverified\""))
+        .stdout(predicate::str::contains("\"verified\": false"))
+        .stdout(predicate::str::contains("BRIDGE_TEST_PG_UNSET_URL"));
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_pg_connect_duplicate_requires_force() {
+    let db_url = test_database_url().await;
+    let dir = TempDir::new().unwrap();
+    bridge()
+        .arg("init")
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    // First connect: succeeds and verifies against the live DB.
+    bridge()
+        .args(["connect", db_url, "--as", "db"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    // Second connect to the same name: fails with provider_already_exists.
+    bridge()
+        .args(["connect", db_url, "--as", "db"])
+        .current_dir(dir.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("provider_already_exists"));
+
+    // With --force: succeeds and re-verifies.
+    bridge()
+        .args(["connect", db_url, "--as", "db", "--force"])
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"verified\": true"));
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_pg_connect_does_not_save_on_verification_failure() {
+    // End-to-end guarantee: a failed verification leaves bridge.yaml untouched,
+    // so subsequent `bridge status` sees no provider for that name.
+    let _ = test_database_url().await;
+
+    let dir = TempDir::new().unwrap();
+    bridge()
+        .arg("init")
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    bridge()
+        .args([
+            "--timeout",
+            "3",
+            "connect",
+            "postgres://postgres:postgres@127.0.0.1:1/postgres",
+            "--as",
+            "ghost",
+        ])
+        .current_dir(dir.path())
+        .assert()
+        .failure();
+
+    let output = bridge()
+        .args(["status"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let providers = parsed["providers"].as_object().unwrap();
+    assert!(
+        !providers.contains_key("ghost"),
+        "provider should not be present after failed verification: {stdout}"
+    );
+}

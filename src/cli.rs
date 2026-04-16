@@ -50,6 +50,14 @@ pub enum Commands {
         /// Name for this provider connection
         #[arg(long = "as")]
         name: String,
+
+        /// Overwrite an existing connection with the same name
+        #[arg(long)]
+        force: bool,
+
+        /// Skip connectivity verification and save the connection as-is
+        #[arg(long = "no-verify")]
+        no_verify: bool,
     },
 
     /// Remove a provider connection

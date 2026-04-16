@@ -176,7 +176,7 @@ fn test_sqlite_connect() {
 }
 
 #[test]
-fn test_sqlite_connect_saves_config_for_nonexistent_file() {
+fn test_sqlite_connect_rejects_missing_file_and_hints_at_rwc() {
     let dir = TempDir::new().unwrap();
     bridge()
         .arg("init")
@@ -193,8 +193,33 @@ fn test_sqlite_connect_saves_config_for_nonexistent_file() {
         ])
         .current_dir(dir.path())
         .assert()
+        .failure()
+        .stderr(predicate::str::contains("connection_verification_failed"))
+        .stderr(predicate::str::contains("mode=rwc"));
+}
+
+#[test]
+fn test_sqlite_connect_saves_config_for_nonexistent_file_with_no_verify() {
+    let dir = TempDir::new().unwrap();
+    bridge()
+        .arg("init")
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    bridge()
+        .args([
+            "connect",
+            "sqlite:///tmp/bridge_nonexistent_12345.db",
+            "--as",
+            "db",
+            "--no-verify",
+        ])
+        .current_dir(dir.path())
+        .assert()
         .success()
-        .stdout(predicate::str::contains("\"type\": \"sqlite\""));
+        .stdout(predicate::str::contains("\"type\": \"sqlite\""))
+        .stdout(predicate::str::contains("\"status\": \"saved_unverified\""));
 }
 
 // ── ls ───────────────────────────────────────────────────────────────

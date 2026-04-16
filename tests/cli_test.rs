@@ -64,6 +64,7 @@ fn test_init_already_exists() {
 #[test]
 fn test_connect_filesystem() {
     let dir = TempDir::new().unwrap();
+    std::fs::create_dir_all(dir.path().join("data")).unwrap();
     bridge()
         .arg("init")
         .current_dir(dir.path())
@@ -76,7 +77,56 @@ fn test_connect_filesystem() {
         .assert()
         .success()
         .stdout(predicate::str::contains("\"type\": \"filesystem\""))
-        .stdout(predicate::str::contains("\"status\": \"connected\""));
+        .stdout(predicate::str::contains("\"status\": \"connected\""))
+        .stdout(predicate::str::contains("\"verified\": true"));
+}
+
+#[test]
+fn test_connect_fails_verification_when_directory_missing() {
+    let dir = TempDir::new().unwrap();
+    bridge()
+        .arg("init")
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    bridge()
+        .args(["connect", "file://./nope", "--as", "files"])
+        .current_dir(dir.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("connection_verification_failed"));
+
+    // Nothing should have been written to bridge.yaml
+    let config = std::fs::read_to_string(dir.path().join("bridge.yaml")).unwrap();
+    assert!(!config.contains("files:"));
+}
+
+#[test]
+fn test_connect_no_verify_saves_unreachable_target() {
+    let dir = TempDir::new().unwrap();
+    bridge()
+        .arg("init")
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    bridge()
+        .args([
+            "connect",
+            "file://./never-created",
+            "--as",
+            "files",
+            "--no-verify",
+        ])
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\": \"saved_unverified\""))
+        .stdout(predicate::str::contains("\"verified\": false"));
+
+    let config = std::fs::read_to_string(dir.path().join("bridge.yaml")).unwrap();
+    assert!(config.contains("file://./never-created"));
 }
 
 #[test]
@@ -89,7 +139,13 @@ fn test_connect_postgres_uri() {
         .success();
 
     bridge()
-        .args(["connect", "postgres://localhost:5432/db", "--as", "mydb"])
+        .args([
+            "connect",
+            "postgres://localhost:5432/db",
+            "--as",
+            "mydb",
+            "--no-verify",
+        ])
         .current_dir(dir.path())
         .assert()
         .success()
@@ -113,6 +169,7 @@ fn test_connect_postgres_uri_with_matching_explicit_type() {
             "postgres",
             "--as",
             "mydb",
+            "--no-verify",
         ])
         .current_dir(dir.path())
         .assert()
@@ -171,6 +228,7 @@ fn test_connect_env_var_target() {
         .success();
 
     bridge()
+        .env_remove("DATABASE_URL")
         .args([
             "connect",
             "DATABASE_URL",
@@ -183,7 +241,10 @@ fn test_connect_env_var_target() {
         .assert()
         .success()
         .stdout(predicate::str::contains("\"type\": \"postgres\""))
-        .stdout(predicate::str::contains("\"uri\": \"${DATABASE_URL}\""));
+        .stdout(predicate::str::contains("\"uri\": \"${DATABASE_URL}\""))
+        // DATABASE_URL unset → saved but unverified, with guidance
+        .stdout(predicate::str::contains("\"status\": \"saved_unverified\""))
+        .stdout(predicate::str::contains("\"verified\": false"));
 
     let config = std::fs::read_to_string(dir.path().join("bridge.yaml")).unwrap();
     assert!(config.contains("type: postgres"));
@@ -283,7 +344,7 @@ fn test_connect_invalid_target_without_uri_scheme() {
 }
 
 #[test]
-fn test_connect_duplicate_overwrites() {
+fn test_connect_duplicate_without_force_fails() {
     let dir = TempDir::new().unwrap();
     bridge()
         .arg("init")
@@ -292,18 +353,52 @@ fn test_connect_duplicate_overwrites() {
         .success();
 
     bridge()
-        .args(["connect", "file://./v1", "--as", "files"])
+        .args(["connect", "file://./v1", "--as", "files", "--no-verify"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    // Second connect to the same name without --force must fail and leave config intact.
+    bridge()
+        .args(["connect", "file://./v2", "--as", "files", "--no-verify"])
+        .current_dir(dir.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("provider_already_exists"));
+
+    let config = std::fs::read_to_string(dir.path().join("bridge.yaml")).unwrap();
+    assert!(config.contains("file://./v1"));
+    assert!(!config.contains("file://./v2"));
+}
+
+#[test]
+fn test_connect_duplicate_with_force_overwrites() {
+    let dir = TempDir::new().unwrap();
+    bridge()
+        .arg("init")
         .current_dir(dir.path())
         .assert()
         .success();
 
     bridge()
-        .args(["connect", "file://./v2", "--as", "files"])
+        .args(["connect", "file://./v1", "--as", "files", "--no-verify"])
         .current_dir(dir.path())
         .assert()
         .success();
 
-    // Verify config has the new URI
+    bridge()
+        .args([
+            "connect",
+            "file://./v2",
+            "--as",
+            "files",
+            "--force",
+            "--no-verify",
+        ])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
     let config = std::fs::read_to_string(dir.path().join("bridge.yaml")).unwrap();
     assert!(config.contains("file://./v2"));
     assert!(!config.contains("file://./v1"));
@@ -355,7 +450,7 @@ fn test_remove_provider() {
         .assert()
         .success();
     bridge()
-        .args(["connect", "file://./data", "--as", "files"])
+        .args(["connect", "file://./data", "--as", "files", "--no-verify"])
         .current_dir(dir.path())
         .assert()
         .success();
@@ -389,7 +484,7 @@ fn test_remove_nonexistent() {
 fn test_no_config_error() {
     let dir = TempDir::new().unwrap();
     bridge()
-        .args(["connect", "file://./data", "--as", "files"])
+        .args(["connect", "file://./data", "--as", "files", "--no-verify"])
         .current_dir(dir.path())
         .assert()
         .failure()
@@ -414,7 +509,7 @@ fn test_all_outputs_are_json() {
 
     // connect output is valid JSON
     let output = bridge()
-        .args(["connect", "file://./data", "--as", "files"])
+        .args(["connect", "file://./data", "--as", "files", "--no-verify"])
         .current_dir(dir.path())
         .output()
         .unwrap();
