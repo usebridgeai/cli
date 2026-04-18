@@ -14,15 +14,20 @@
 #[path = "../src/error.rs"]
 mod error;
 
-mod mcp {
-    #[path = "../../src/mcp/manifest.rs"]
-    pub mod manifest;
-    #[path = "../../src/mcp/openapi.rs"]
-    pub mod openapi;
-    #[path = "../../src/mcp/schema.rs"]
-    pub mod schema;
-    #[path = "../../src/mcp/tool_mapper.rs"]
-    pub mod tool_mapper;
+#[path = "../src/mcp/manifest.rs"]
+pub mod mcp_manifest;
+#[path = "../src/mcp/openapi.rs"]
+pub mod mcp_openapi;
+#[path = "../src/mcp/schema.rs"]
+pub mod mcp_schema;
+#[path = "../src/mcp/tool_mapper.rs"]
+pub mod mcp_tool_mapper;
+
+pub mod mcp {
+    pub use crate::mcp_manifest as manifest;
+    pub use crate::mcp_openapi as openapi;
+    pub use crate::mcp_schema as schema;
+    pub use crate::mcp_tool_mapper as tool_mapper;
 }
 
 use mcp::{manifest, openapi, schema, tool_mapper};
