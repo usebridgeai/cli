@@ -86,7 +86,7 @@ try {
     Write-Host ""
     Write-Host "  Location: $InstallDir\$BinaryName"
     Write-Host ""
-    Write-Host "  Get started:"
+    Write-Host "  Get started (assuming ./data already exists):"
     Write-Host "    bridge init"
     Write-Host "    bridge connect file://./data --as files"
     Write-Host "    bridge ls --from files"

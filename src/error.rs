@@ -26,6 +26,18 @@ pub enum BridgeError {
     #[error("Provider '{0}' not found. Available providers: {1}")]
     ProviderNotFound(String, String),
 
+    #[error("A provider named '{name}' already exists (currently points to {existing}). Re-run with --force to overwrite.")]
+    ProviderAlreadyExists { name: String, existing: String },
+
+    // Wrapper deliberately says "Verification failed" (not "Connection
+    // verification failed") so it composes cleanly with reasons that already
+    // start with "Connection failed: ..." or "Health check failed: ..." from
+    // the probe layer — avoids the awkward "Connection ... Connection failed"
+    // doubling. The error_code remains `connection_verification_failed` for
+    // JSON consumers.
+    #[error("Verification failed for '{name}': {reason}. Re-run with --no-verify to save without verifying.")]
+    ConnectionVerificationFailed { name: String, reason: String },
+
     #[error("Provider error: {0}")]
     ProviderError(String),
 
@@ -88,6 +100,8 @@ impl BridgeError {
             Self::ConfigNotFound => "config_not_found",
             Self::ConfigParse(_) => "config_parse_error",
             Self::ProviderNotFound(_, _) => "provider_not_found",
+            Self::ProviderAlreadyExists { .. } => "provider_already_exists",
+            Self::ConnectionVerificationFailed { .. } => "connection_verification_failed",
             Self::ProviderError(_) => "provider_error",
             Self::UnsupportedOperation(_) => "unsupported_operation",
             Self::EnvVarNotSet(_) => "env_var_not_set",

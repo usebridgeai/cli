@@ -211,7 +211,7 @@ fn test_path_traversal_blocked() {
 }
 
 #[test]
-fn test_connect_nonexistent_directory() {
+fn test_connect_nonexistent_directory_fails_verification() {
     let dir = TempDir::new().unwrap();
     bridge()
         .arg("init")
@@ -219,6 +219,7 @@ fn test_connect_nonexistent_directory() {
         .assert()
         .success();
 
+    // With verification on by default, connect itself fails.
     bridge()
         .args([
             "connect",
@@ -228,9 +229,33 @@ fn test_connect_nonexistent_directory() {
         ])
         .current_dir(dir.path())
         .assert()
-        .success(); // connect succeeds (just saves config)
+        .failure()
+        .stderr(predicate::str::contains("connection_verification_failed"));
+}
 
-    // But ls should fail because the directory doesn't exist
+#[test]
+fn test_connect_nonexistent_directory_with_no_verify_saves_but_ls_fails() {
+    let dir = TempDir::new().unwrap();
+    bridge()
+        .arg("init")
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    // --no-verify is the escape hatch: save the config as-is.
+    bridge()
+        .args([
+            "connect",
+            "file:///nonexistent/path/that/does/not/exist",
+            "--as",
+            "bad",
+            "--no-verify",
+        ])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    // ls still fails because the directory does not exist.
     bridge()
         .args(["ls", "--from", "bad"])
         .current_dir(dir.path())

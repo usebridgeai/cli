@@ -24,27 +24,28 @@ Bridge is the [`rclone`](https://rclone.org/) for agent context. One interface, 
 
 ## Quick Start
 
+The examples below assume the referenced directory, file, and database already exist.
+
 ```bash
 # Initialize a project
 bridge init
 
 # Connect data sources
 bridge connect file://./docs --as files
-bridge connect postgres://localhost:5432/mydb --as db
-bridge connect DATABASE_URL --type postgres --as db
+bridge connect sqlite://./local.db --as localdb
 
 # List contents
 bridge ls --from files
-bridge ls --from db
+bridge ls --from localdb
 
 # Read context
 bridge read README.md --from files
-bridge read users --from db
-bridge read users/42 --from db
 
 # Check health
 bridge status
 ```
+
+`bridge connect` verifies the target by default. If you want to save a connection before the directory, database, or service is reachable, add `--no-verify`. Re-run with `--force` to replace an existing provider name.
 
 ### What agents see
 
@@ -143,7 +144,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design.
 | Command                            | Description                        |
 | ---------------------------------- | ---------------------------------- |
 | `bridge init`                      | Create a `bridge.yaml` config file |
-| `bridge connect <target> --as <name> [--type <provider>]` | Add a data source connection       |
+| `bridge connect <target> --as <name> [--type <provider>] [--force] [--no-verify]` | Add and verify a data source connection |
 | `bridge remove <name>`             | Remove a data source               |
 | `bridge status`                    | Show health of all connections     |
 | `bridge ls --from <name>`          | List contents (files, tables)      |
@@ -162,7 +163,7 @@ providers:
     uri: file://./docs
   localdb:
     type: sqlite
-    uri: sqlite://./local.db?mode=rwc
+    uri: sqlite://./local.db
   db:
     type: postgres
     uri: ${DATABASE_URL}
@@ -172,10 +173,12 @@ Environment variables are supported with `${VAR_NAME}` syntax. For shared or pro
 
 Bridge supports two setup patterns:
 
-- For quick local setup, pass a literal URI such as `postgres://localhost:5432/mydb`.
+- For quick local setup, pass a reachable literal URI such as `file://./docs`, `sqlite://./local.db`, or `postgres://localhost:5432/mydb`.
 - For safer shared or production setups, pass a bare environment variable name such as `DATABASE_URL` together with `--type postgres`. Bridge writes `uri: ${DATABASE_URL}` into `bridge.yaml` and resolves the real value at runtime.
 
-SQLite is also supported through literal URIs such as `sqlite://./local.db`, or `sqlite://./local.db?mode=rwc` when you want SQLite to create the file on first use.
+`bridge connect` verifies new connections by default. If the target is not reachable yet, pass `--no-verify` to save the config anyway. If you need to replace an existing provider with the same name, re-run with `--force`.
+
+SQLite is also supported through `sqlite://./local.db?mode=rwc` when you explicitly want SQLite to create the file on first use.
 
 Bridge reads environment variables from the process environment when commands run. It does not automatically load a `.env` file for you.
 

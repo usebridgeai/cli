@@ -43,7 +43,11 @@ async fn main() {
             target,
             provider_type,
             name,
-        } => commands::connect::execute(target, provider_type, name).await,
+            force,
+            no_verify,
+        } => {
+            commands::connect::execute(target, provider_type, name, force, no_verify, timeout).await
+        }
         Commands::Remove { name } => commands::remove::execute(name).await,
         Commands::Status => commands::status::execute(timeout).await,
         Commands::Ls { from } => commands::ls::execute(from, timeout).await,
