@@ -1,0 +1,78 @@
+openapi: 3.0.3
+info:
+  title: Petstore
+  version: 1.0.0
+servers:
+  - url: https://petstore.example.com
+paths:
+  /pets:
+    get:
+      operationId: listPets
+      summary: List all pets
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of pets to return.
+          schema:
+            type: integer
+            format: int32
+        - name: tag
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: A list of pets.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Pet"
+  /pets/{petId}:
+    get:
+      operationId: getPetById
+      summary: Get a pet by ID.
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          description: The ID of the pet to fetch.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: A pet.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pet"
+        "404":
+          description: Not found.
+  /pets/{petId}/adopt:
+    post:
+      operationId: adoptPet
+      summary: Adopt a pet (MVP should skip POST).
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ok
+components:
+  schemas:
+    Pet:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        tag:
+          type: string

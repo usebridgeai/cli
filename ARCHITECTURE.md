@@ -2,7 +2,9 @@
 
 ## Overview
 
-Bridge is a single Rust binary with a plugin-ready provider architecture. Agents invoke it directly via CLI — no server, no daemon, no MCP.
+Bridge is a single Rust binary with a plugin-ready provider architecture. Agents
+can invoke it directly via CLI, and Bridge can also expose generated MCP servers
+over stdio. The design stays local-first: no always-on daemon is required.
 
 ```
 Agent → bridge read <path> --from <provider> [--limit <n>]
@@ -30,19 +32,34 @@ src/
 ├── commands/
 │   ├── init.rs          # bridge init
 │   ├── connect.rs       # bridge connect <target> --as <name> [--type <provider>]
+│   ├── generate.rs      # bridge generate mcp --from openapi ...
+│   ├── mcp.rs           # bridge mcp serve <manifest>
 │   ├── remove.rs        # bridge remove <name>
 │   ├── ls.rs            # bridge ls --from <name>
 │   ├── read.rs          # bridge read <path> --from <name>
-│   └── status.rs        # bridge status
+│   ├── status.rs        # bridge status
+│   └── update.rs        # bridge update [--check]
+├── mcp/
+│   ├── manifest.rs      # bridge.mcp/v1 types, YAML serde, validation
+│   ├── openapi.rs       # OpenAPI 3.0 loader -> canonical operation model
+│   ├── tool_mapper.rs   # Canonical ops -> MCP tool definitions
+│   ├── schema.rs        # Minimal JSON Schema validation for tool inputs
+│   ├── executor.rs      # HTTP executor for generated tools
+│   └── runtime.rs       # Stdio JSON-RPC 2.0 MCP server
 └── provider/
     ├── mod.rs           # Provider trait, create_provider() registry
     ├── filesystem.rs    # Filesystem provider (path traversal protection)
-    └── postgres.rs      # Postgres provider (SQL injection protection)
+    ├── postgres.rs      # Postgres provider (SQL injection protection)
+    └── sqlite.rs        # SQLite provider
 
 tests/
 ├── cli_test.rs          # CLI integration tests (all commands)
 ├── filesystem_test.rs   # Filesystem provider tests
-└── postgres_test.rs     # Postgres tests (require Docker, run with --ignored)
+├── mcp_generate_test.rs # MCP manifest generation tests
+├── mcp_runtime_test.rs  # MCP stdio end-to-end runtime test
+├── mcp_unit_test.rs     # MCP parser / mapper / schema unit coverage
+├── postgres_test.rs     # Postgres tests (require Docker, run with --ignored)
+└── sqlite_test.rs       # SQLite provider tests
 ```
 
 ## Provider Trait
@@ -76,3 +93,42 @@ New providers are added by implementing this trait and registering in `create_pr
 2. Implement the `Provider` trait
 3. Register in `create_provider()` in `src/provider/mod.rs`
 4. Add integration tests in `tests/your_provider_test.rs`
+
+## MCP subsystem (src/mcp/)
+
+Bridge also ships an MCP generation + runtime subsystem. The key design constraint:
+the manifest (`bridge.mcp/v1`) is the product boundary. Generation and runtime
+must share no hidden logic — both operate through the same typed manifest so
+Bridge Cloud can host the exact artifact later without reformatting.
+
+```
+OpenAPI spec ──► openapi.rs ──► CanonicalOp[] ──► tool_mapper.rs ──► Manifest
+                                                                        │
+                                                                        ▼
+                                                       write: bridge.mcp/v1 YAML
+                                                                        │
+                                                                        ▼
+                            manifest.rs (load + validate) ──► runtime.rs (stdio JSON-RPC 2.0)
+                                                                        │
+                                                                        ▼
+                                                             executor.rs (HTTP call)
+```
+
+| File | Responsibility |
+| ---- | -------------- |
+| `src/mcp/manifest.rs` | `bridge.mcp/v1` types, YAML serde, validation |
+| `src/mcp/openapi.rs`  | OpenAPI 3.0 loader → canonical operation model |
+| `src/mcp/tool_mapper.rs` | Canonical ops → tool definitions (deterministic naming, MCP annotations) |
+| `src/mcp/schema.rs`   | Minimal JSON Schema validation for tool inputs |
+| `src/mcp/executor.rs` | HTTP executor — resolves env vars (base URL, bearer) at call time |
+| `src/mcp/runtime.rs`  | Newline-delimited JSON-RPC 2.0 MCP server over stdio |
+
+Runtime invariants:
+
+- Logs go to **stderr** only — any stray stdout write would desync the stdio MCP client.
+- Env-var resolution happens at `serve` start, so missing secrets fail fast rather than mid-tool-call.
+- The first usable OpenAPI `servers` entry becomes `runtime.base_url`; `--base-url-env` remains an override path for per-environment base URLs.
+- Local OpenAPI schema refs are inlined into generated manifest schemas so MCP clients and runtime validation do not depend on the original OpenAPI components section.
+- Tool input is validated before the HTTP executor is invoked; validation failures surface as tool-level `isError: true`, not JSON-RPC errors.
+- Response schemas are best-effort metadata. If a response schema is recursive or otherwise cannot be fully inlined, generation keeps the tool and omits `outputSchema` with a diagnostic instead of dropping the operation.
+- Unsupported OpenAPI operations (POST/PUT/PATCH/DELETE in MVP) are reported in the `skipped` output; generation never crashes on them.
