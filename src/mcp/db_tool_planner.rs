@@ -335,7 +335,7 @@ fn build_list_input_schema(
             "order_by".to_string(),
             json!({
                 "type": "string",
-                "enum": sortable.iter().cloned().collect::<Vec<_>>(),
+                "enum": sortable.to_vec(),
                 "description": "Column to sort by. Restricted to an allowlist.",
             }),
         );
