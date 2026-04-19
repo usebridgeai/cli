@@ -32,7 +32,7 @@ src/
 ├── commands/
 │   ├── init.rs          # bridge init
 │   ├── connect.rs       # bridge connect <target> --as <name> [--type <provider>]
-│   ├── generate.rs      # bridge generate mcp --from openapi ...
+│   ├── generate.rs      # bridge generate mcp --from openapi|db ...
 │   ├── mcp.rs           # bridge mcp serve <manifest>
 │   ├── remove.rs        # bridge remove <name>
 │   ├── ls.rs            # bridge ls --from <name>
@@ -42,9 +42,12 @@ src/
 ├── mcp/
 │   ├── manifest.rs      # bridge.mcp/v1 types, YAML serde, validation
 │   ├── openapi.rs       # OpenAPI 3.0 loader -> canonical operation model
+│   ├── db_introspector.rs # Postgres schema metadata model + introspection
+│   ├── db_tool_planner.rs # DB metadata -> deterministic MCP SQL tool plans
 │   ├── tool_mapper.rs   # Canonical ops -> MCP tool definitions
 │   ├── schema.rs        # Minimal JSON Schema validation for tool inputs
 │   ├── executor.rs      # HTTP executor for generated tools
+│   ├── sql_executor.rs  # Read-only SQL executor for manifest SQL plans
 │   └── runtime.rs       # Stdio JSON-RPC 2.0 MCP server
 └── provider/
     ├── mod.rs           # Provider trait, create_provider() registry
@@ -55,6 +58,7 @@ src/
 tests/
 ├── cli_test.rs          # CLI integration tests (all commands)
 ├── filesystem_test.rs   # Filesystem provider tests
+├── mcp_db_test.rs       # DB-backed MCP integration tests (ignored, real Postgres)
 ├── mcp_generate_test.rs # MCP manifest generation tests
 ├── mcp_runtime_test.rs  # MCP stdio end-to-end runtime test
 ├── mcp_unit_test.rs     # MCP parser / mapper / schema unit coverage
@@ -132,3 +136,34 @@ Runtime invariants:
 - Tool input is validated before the HTTP executor is invoked; validation failures surface as tool-level `isError: true`, not JSON-RPC errors.
 - Response schemas are best-effort metadata. If a response schema is recursive or otherwise cannot be fully inlined, generation keeps the tool and omits `outputSchema` with a diagnostic instead of dropping the operation.
 - Unsupported OpenAPI operations (POST/PUT/PATCH/DELETE in MVP) are reported in the `skipped` output; generation never crashes on them.
+
+## DB-backed MCP flow
+
+The DB generator follows the same manifest-first rule as OpenAPI generation. It does not embed DSNs or bypass the provider layer.
+
+```
+bridge generate mcp --from db
+            │
+            ├── commands/generate.rs
+            ├── provider/postgres.rs (resolve named Bridge connection)
+            ├── mcp/db_introspector.rs (schema-only metadata)
+            ├── mcp/db_tool_planner.rs (deterministic tool planning)
+            ├── mcp/manifest.rs (validate + serialize)
+            ▼
+      bridge.mcp/v1 YAML with connection_ref
+            │
+            ├── bridge mcp serve <manifest>
+            ├── commands/mcp.rs (anchor config lookup to manifest dir)
+            ├── mcp/runtime.rs (stdio JSON-RPC)
+            └── mcp/sql_executor.rs (read-only parameterized SQL)
+```
+
+DB-specific invariants:
+
+- The manifest stores `connection_ref`, not DSNs or secrets.
+- Generation and runtime both resolve the database through Bridge's named provider config.
+- Introspection is schema-level only; it never reads user data rows.
+- Tool planning is deterministic for identical metadata.
+- SQL execution is read-only, parameterized, and limited by allowlisted columns, row caps, and statement timeouts.
+- `list_*` tools are always generated for supported tables and views; `get_*_by_*` tools are only generated when a deterministic single-column key exists.
+- Runtime config discovery starts from the manifest directory, so generated client snippets remain portable across working directories.

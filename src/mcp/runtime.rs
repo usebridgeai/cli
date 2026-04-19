@@ -12,20 +12,33 @@ use crate::error::{BridgeError, Result};
 use crate::mcp::executor::HttpExecutor;
 use crate::mcp::manifest::{Execute, Manifest, Tool};
 use crate::mcp::schema;
+use crate::mcp::sql_executor::SqlExecutor;
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::path::Path;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 /// MCP protocol version the server advertises. Clients negotiate down if needed.
 const MCP_PROTOCOL_VERSION: &str = "2024-11-05";
 const SERVER_NAME: &str = "bridge";
 
-pub async fn serve(manifest: Manifest, timeout_secs: u64) -> Result<()> {
+pub async fn serve(manifest: Manifest, timeout_secs: u64, config_dir: &Path) -> Result<()> {
     manifest.validate()?;
 
-    // Building the executor up front fails fast on missing env vars — exactly
-    // what the ticket's acceptance criteria asks for.
-    let executor = HttpExecutor::from_manifest(&manifest, timeout_secs)?;
+    // Build the executors we actually need. HTTP is only constructed when at
+    // least one tool uses it, so a pure-DB manifest doesn't demand a base URL
+    // or bearer token it will never call. Both fail fast on missing config —
+    // exactly what the ticket's acceptance criteria asks for.
+    let has_http = manifest
+        .tools
+        .iter()
+        .any(|t| matches!(t.execute, Execute::Http(_)));
+    let http_executor = if has_http {
+        Some(HttpExecutor::from_manifest(&manifest, timeout_secs)?)
+    } else {
+        None
+    };
+    let sql_executor = SqlExecutor::from_manifest(&manifest, Some(config_dir), timeout_secs)?;
 
     let tools_by_name: HashMap<String, Tool> = manifest
         .tools
@@ -54,7 +67,14 @@ pub async fn serve(manifest: Manifest, timeout_secs: u64) -> Result<()> {
             continue;
         }
 
-        let response = handle_line(trimmed, &manifest, &tools_by_name, &executor).await;
+        let response = handle_line(
+            trimmed,
+            &manifest,
+            &tools_by_name,
+            http_executor.as_ref(),
+            &sql_executor,
+        )
+        .await;
 
         if let Some(resp) = response {
             let mut text = serde_json::to_string(&resp)
@@ -78,7 +98,8 @@ async fn handle_line(
     line: &str,
     manifest: &Manifest,
     tools: &HashMap<String, Tool>,
-    executor: &HttpExecutor,
+    http_executor: Option<&HttpExecutor>,
+    sql_executor: &SqlExecutor,
 ) -> Option<Value> {
     let req: Value = match serde_json::from_str(line) {
         Ok(v) => v,
@@ -92,7 +113,7 @@ async fn handle_line(
     let params = req.get("params").cloned().unwrap_or(Value::Null);
     let is_notification = id.is_none();
 
-    let result = dispatch(method, params, manifest, tools, executor).await;
+    let result = dispatch(method, params, manifest, tools, http_executor, sql_executor).await;
 
     if is_notification {
         // Notifications never get a response — even on error.
@@ -123,14 +144,17 @@ async fn dispatch(
     params: Value,
     manifest: &Manifest,
     tools: &HashMap<String, Tool>,
-    executor: &HttpExecutor,
+    http_executor: Option<&HttpExecutor>,
+    sql_executor: &SqlExecutor,
 ) -> Result<Option<Value>> {
     match method {
         "initialize" => Ok(Some(initialize_result(manifest))),
         "notifications/initialized" | "initialized" => Ok(Some(Value::Null)),
         "ping" => Ok(Some(json!({}))),
         "tools/list" => Ok(Some(tools_list_result(manifest))),
-        "tools/call" => Ok(Some(tools_call_result(params, tools, executor).await?)),
+        "tools/call" => Ok(Some(
+            tools_call_result(params, tools, http_executor, sql_executor).await?,
+        )),
         _ => Ok(None),
     }
 }
@@ -176,7 +200,8 @@ fn tools_list_result(manifest: &Manifest) -> Value {
 async fn tools_call_result(
     params: Value,
     tools: &HashMap<String, Tool>,
-    executor: &HttpExecutor,
+    http_executor: Option<&HttpExecutor>,
+    sql_executor: &SqlExecutor,
 ) -> Result<Value> {
     let name = params
         .get("name")
@@ -191,17 +216,28 @@ async fn tools_call_result(
         .get(name)
         .ok_or_else(|| BridgeError::McpRuntime(format!("unknown tool '{name}'")))?;
 
-    // Input validation before hitting the network. Validation failures surface
-    // as a *tool-level* error (isError: true) rather than a JSON-RPC error, so
-    // the model can react to them the same way it reacts to any bad call.
+    // Input validation before hitting the network or database. Validation
+    // failures surface as a *tool-level* error (isError: true) rather than a
+    // JSON-RPC error, so the model can react to them the same way it reacts
+    // to any bad call.
     if let Err(e) = schema::validate_input(&tool.name, &tool.input_schema, &arguments) {
         return Ok(tool_error_content(&e.to_string()));
     }
 
-    let Execute::Http(http) = &tool.execute;
-    let structured = match executor.call(http, &arguments).await {
-        Ok(v) => v,
-        Err(e) => return Ok(tool_error_content(&e.to_string())),
+    let structured = match &tool.execute {
+        Execute::Http(http) => {
+            let exec = http_executor.ok_or_else(|| {
+                BridgeError::McpRuntime("HTTP executor unavailable for this manifest".into())
+            })?;
+            match exec.call(http, &arguments).await {
+                Ok(v) => v,
+                Err(e) => return Ok(tool_error_content(&e.to_string())),
+            }
+        }
+        Execute::SqlSelect(plan) => match sql_executor.call(plan, &arguments).await {
+            Ok(v) => v,
+            Err(e) => return Ok(tool_error_content(&e.to_string())),
+        },
     };
 
     let text = serde_json::to_string_pretty(&structured).unwrap_or_else(|_| structured.to_string());

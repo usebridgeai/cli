@@ -38,13 +38,52 @@ impl<'a> ValidationCtx<'a> {
             return Ok(());
         };
 
-        if let Some(ty) = schema.get("type").and_then(|t| t.as_str()) {
-            if !type_matches(ty, value) {
+        if let Some(type_schema) = schema.get("type") {
+            if !type_matches(type_schema, value) {
+                let expected = display_expected_type(type_schema);
                 return Err(self.err(format!(
-                    "expected `{ty}` at `{}`, got `{}`",
+                    "expected `{expected}` at `{}`, got `{}`",
                     display_path(path),
                     type_of(value),
                 )));
+            }
+        }
+
+        if let Some(options) = schema.get("enum").and_then(|v| v.as_array()) {
+            if !options.iter().any(|candidate| candidate == value) {
+                let allowed = options
+                    .iter()
+                    .map(enum_label)
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                return Err(self.err(format!(
+                    "expected one of [{allowed}] at `{}`",
+                    display_path(path),
+                )));
+            }
+        }
+
+        if let Some(minimum) = schema.get("minimum").and_then(|v| v.as_f64()) {
+            if let Some(actual) = value.as_f64() {
+                if actual < minimum {
+                    return Err(self.err(format!(
+                        "expected `{}` to be >= {}",
+                        display_path(path),
+                        minimum
+                    )));
+                }
+            }
+        }
+
+        if let Some(maximum) = schema.get("maximum").and_then(|v| v.as_f64()) {
+            if let Some(actual) = value.as_f64() {
+                if actual > maximum {
+                    return Err(self.err(format!(
+                        "expected `{}` to be <= {}",
+                        display_path(path),
+                        maximum
+                    )));
+                }
             }
         }
 
@@ -104,7 +143,18 @@ impl<'a> ValidationCtx<'a> {
     }
 }
 
-fn type_matches(ty: &str, value: &Value) -> bool {
+fn type_matches(ty: &Value, value: &Value) -> bool {
+    match ty {
+        Value::String(single) => scalar_type_matches(single, value),
+        Value::Array(options) => options
+            .iter()
+            .filter_map(Value::as_str)
+            .any(|option| scalar_type_matches(option, value)),
+        _ => true,
+    }
+}
+
+fn scalar_type_matches(ty: &str, value: &Value) -> bool {
     match ty {
         "object" => value.is_object(),
         "array" => value.is_array(),
@@ -135,4 +185,23 @@ fn display_path(path: &str) -> &str {
     } else {
         path
     }
+}
+
+fn display_expected_type(ty: &Value) -> String {
+    match ty {
+        Value::String(single) => single.clone(),
+        Value::Array(options) => options
+            .iter()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>()
+            .join("|"),
+        _ => "unknown".to_string(),
+    }
+}
+
+fn enum_label(value: &Value) -> String {
+    value
+        .as_str()
+        .map(str::to_string)
+        .unwrap_or_else(|| value.to_string())
 }

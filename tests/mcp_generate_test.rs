@@ -5,7 +5,10 @@
 use assert_cmd::Command;
 use predicates::prelude::PredicateBooleanExt;
 use predicates::str::contains;
+use serde_json::json;
 use std::fs;
+use std::io::{BufRead, BufReader, Write};
+use std::process::{Command as StdCommand, Stdio};
 use tempfile::TempDir;
 
 fn bridge() -> Command {
@@ -274,4 +277,118 @@ fn mcp_serve_errors_on_missing_env_var() {
         .assert()
         .failure()
         .stderr(contains("PETSTORE_BASE_URL_MISSING_XYZ"));
+}
+
+#[test]
+fn mcp_serve_db_manifest_resolves_config_relative_to_manifest() {
+    let project = TempDir::new().unwrap();
+    let elsewhere = TempDir::new().unwrap();
+    let manifest = project.path().join("analytics.mcp.yaml");
+
+    bridge()
+        .arg("init")
+        .current_dir(project.path())
+        .assert()
+        .success();
+    bridge()
+        .args([
+            "connect",
+            "postgres://localhost:5432/bridge_test",
+            "--as",
+            "analytics",
+            "--no-verify",
+        ])
+        .current_dir(project.path())
+        .assert()
+        .success();
+
+    fs::write(
+        &manifest,
+        r#"
+kind: bridge.mcp/v1
+name: analytics
+source:
+  type: db
+  connection: analytics
+  dialect: postgres
+  schema: public
+runtime:
+  transport: stdio
+tools:
+  - name: list_customers
+    annotations:
+      readOnlyHint: true
+      destructiveHint: false
+      idempotentHint: true
+      openWorldHint: false
+    input_schema:
+      type: object
+      properties:
+        order_by:
+          type: string
+          enum: [id]
+      additionalProperties: false
+    execute:
+      type: sql_select
+      connection_ref: analytics
+      schema: public
+      table: customers
+      mode: list
+      selectable_columns: [id]
+      column_types:
+        id: integer
+      filterable_columns: []
+      sortable_columns: [id]
+      limit:
+        default: 50
+        max: 200
+"#,
+    )
+    .unwrap();
+
+    let mut child = StdCommand::new(assert_cmd::cargo::cargo_bin("bridge"))
+        .args(["mcp", "serve", manifest.to_str().unwrap()])
+        .current_dir(elsewhere.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+
+    stdin
+        .write_all(
+            format!(
+                "{}\n",
+                json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}})
+            )
+            .as_bytes(),
+        )
+        .unwrap();
+    stdin.flush().unwrap();
+
+    let mut line = String::new();
+    stdout.read_line(&mut line).unwrap();
+    let init: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(init["result"]["protocolVersion"], "2024-11-05");
+
+    line.clear();
+    stdin
+        .write_all(
+            format!(
+                "{}\n",
+                json!({"jsonrpc":"2.0","id":2,"method":"tools/list"})
+            )
+            .as_bytes(),
+        )
+        .unwrap();
+    stdin.flush().unwrap();
+    stdout.read_line(&mut line).unwrap();
+    let list: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(list["result"]["tools"][0]["name"], "list_customers");
+
+    let _ = child.kill();
+    let _ = child.wait();
 }

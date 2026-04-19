@@ -10,5 +10,9 @@ use std::path::PathBuf;
 pub async fn execute_serve(manifest_path: String, timeout_secs: u64) -> Result<()> {
     let path = PathBuf::from(manifest_path);
     let manifest = Manifest::load_from_path(&path)?;
-    runtime::serve(manifest, timeout_secs).await
+    let config_dir = path
+        .parent()
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
+    runtime::serve(manifest, timeout_secs, &config_dir).await
 }
