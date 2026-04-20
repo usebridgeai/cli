@@ -94,6 +94,31 @@ async fn main() {
         },
         Commands::Mcp { action } => match action {
             McpAction::Serve { manifest } => commands::mcp::execute_serve(manifest, timeout).await,
+            McpAction::ServeHttp {
+                manifest,
+                bind,
+                public_url,
+                max_header_bytes,
+                max_body_bytes,
+                read_timeout_secs,
+                request_timeout_secs,
+                shutdown_grace_secs,
+                allow_origin,
+            } => {
+                commands::mcp::execute_serve_http(commands::mcp::ServeHttpArgs {
+                    manifest_path: manifest,
+                    bind,
+                    public_url,
+                    max_header_bytes,
+                    max_body_bytes,
+                    read_timeout_secs,
+                    request_timeout_secs,
+                    shutdown_grace_secs,
+                    allow_origin,
+                    timeout_secs: timeout,
+                })
+                .await
+            }
         },
     };
 
@@ -141,7 +166,7 @@ fn should_run_passive_update_check(command: &Commands, stderr_is_terminal: bool)
         Commands::Update { .. }
             | Commands::Completions { .. }
             | Commands::Mcp {
-                action: McpAction::Serve { .. }
+                action: McpAction::Serve { .. } | McpAction::ServeHttp { .. }
             }
     )
 }

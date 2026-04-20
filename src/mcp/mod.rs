@@ -5,9 +5,11 @@
 pub mod db_introspector;
 pub mod db_tool_planner;
 pub mod executor;
+pub mod http;
 pub mod manifest;
 pub mod openapi;
 pub mod runtime;
 pub mod schema;
+pub mod service;
 pub mod sql_executor;
 pub mod tool_mapper;

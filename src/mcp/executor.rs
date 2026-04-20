@@ -9,9 +9,18 @@
 
 use crate::error::{BridgeError, Result};
 use crate::mcp::manifest::{Auth, HttpExecute, HttpParam, Manifest, ParamLocation};
+use crate::mcp::service::HttpExecuting;
+use async_trait::async_trait;
 use reqwest::{Client, Method};
 use serde_json::Value;
 use std::time::Duration;
+
+#[async_trait]
+impl HttpExecuting for HttpExecutor {
+    async fn call(&self, exec: &HttpExecute, input: &Value) -> Result<Value> {
+        HttpExecutor::call(self, exec, input).await
+    }
+}
 
 pub struct HttpExecutor {
     client: Client,
