@@ -13,35 +13,17 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-use crate::config::{expand_env_vars, load_config, ProviderConfig};
 use crate::error::{BridgeError, Result};
-use crate::provider::{create_provider, ReadOptions};
+use crate::provider::{
+    connect_with_timeout, create_provider, load_named_provider_config, ReadOptions,
+};
 
 pub async fn execute(path: String, from: String, limit: usize, timeout_secs: u64) -> Result<()> {
-    let config = load_config()?;
-
-    let provider_config = config.providers.get(&from).ok_or_else(|| {
-        let available = config
-            .providers
-            .keys()
-            .cloned()
-            .collect::<Vec<_>>()
-            .join(", ");
-        BridgeError::ProviderNotFound(from.clone(), available)
-    })?;
-
-    let expanded_uri = expand_env_vars(&provider_config.uri)?;
-    let expanded_config = ProviderConfig {
-        provider_type: provider_config.provider_type.clone(),
-        uri: expanded_uri,
-    };
-
+    let provider_config = load_named_provider_config(&from, None)?;
     let mut provider = create_provider(&provider_config.provider_type)?;
     let timeout = tokio::time::Duration::from_secs(timeout_secs);
 
-    tokio::time::timeout(timeout, provider.connect(&expanded_config))
-        .await
-        .map_err(|_| BridgeError::Timeout(timeout_secs))??;
+    connect_with_timeout(&mut *provider, &provider_config, timeout_secs).await?;
 
     let read_options = ReadOptions { limit: Some(limit) };
 

@@ -70,14 +70,26 @@ async fn main() {
         Commands::Generate { target } => match target {
             GenerateTarget::Mcp {
                 from,
+                connection,
+                schema,
                 name,
                 base_url_env,
                 bearer_env,
                 out,
                 force,
             } => {
-                commands::generate::execute_mcp(from, name, base_url_env, bearer_env, out, force)
-                    .await
+                commands::generate::execute_mcp(
+                    from,
+                    connection,
+                    schema,
+                    name,
+                    base_url_env,
+                    bearer_env,
+                    out,
+                    force,
+                    timeout,
+                )
+                .await
             }
         },
         Commands::Mcp { action } => match action {
@@ -156,6 +168,8 @@ mod tests {
         let command = Commands::Generate {
             target: GenerateTarget::Mcp {
                 from: vec!["openapi".into(), "spec.yaml".into()],
+                connection: None,
+                schema: None,
                 name: "petstore".into(),
                 base_url_env: None,
                 bearer_env: None,

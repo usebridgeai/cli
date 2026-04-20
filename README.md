@@ -47,6 +47,8 @@ bridge status
 
 `bridge connect` verifies the target by default. If you want to save a connection before the directory, database, or service is reachable, add `--no-verify`. Re-run with `--force` to replace an existing provider name.
 
+Bridge can also generate and serve MCP servers from OpenAPI specs and existing Postgres connections. See the MCP sections below for end-to-end examples.
+
 ### What agents see
 
 All output is JSON on stdout. Agents parse it directly.
@@ -150,6 +152,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design.
 | `bridge ls --from <name>`          | List contents (files, tables)      |
 | `bridge read <path> --from <name>` | Read context from a source         |
 | `bridge generate mcp --from openapi <spec> --name <n> --out <file>` | Generate a bridge.mcp/v1 manifest from an OpenAPI spec |
+| `bridge generate mcp --from db --connection <name> --schema <schema> --name <n> --out <file>` | Generate a bridge.mcp/v1 manifest from a Postgres connection |
 | `bridge mcp serve <manifest>`      | Serve an MCP manifest as a live MCP server over stdio |
 
 ## MCP servers from OpenAPI
@@ -195,6 +198,40 @@ Secrets are **never** written to the manifest — only the env var name is store
 Bridge inlines local OpenAPI schema refs into generated tool input schemas, so MCP clients and runtime validation do not depend on the original OpenAPI components section. Response schemas are best-effort metadata: recursive response models may omit `outputSchema`, but the tool is still generated and callable.
 
 MVP scope: OpenAPI 3.0 input, GET operations only, stdio transport, bearer-token auth. POST/PUT/PATCH/DELETE are reported as skipped and left as additive follow-on work.
+
+## MCP servers from Postgres
+
+Bridge can also turn an existing Bridge Postgres connection into a read-only MCP server. The manifest stays secret-free and reuses the named connection from `bridge.yaml` at runtime.
+
+### Happy path
+
+```bash
+# 1. Connect a Postgres database once.
+bridge connect postgres://localhost:5432/analytics --as analytics
+
+# 2. Generate a manifest from the selected schema.
+bridge generate mcp \
+  --from db \
+  --connection analytics \
+  --schema public \
+  --name analytics \
+  --out ./analytics.mcp.yaml
+
+# 3. Serve it as an MCP server over stdio.
+bridge mcp serve ./analytics.mcp.yaml
+```
+
+Generation prints a ready-to-paste MCP client config snippet. The snippet uses an absolute manifest path so it can be registered in MCP clients directly.
+
+Generated DB tools are intentionally conservative:
+
+- `list_*` tools support safe equality filters, pagination, and allowlisted sorting.
+- `get_*_by_*` tools are generated only when Bridge can prove a deterministic single-column lookup key.
+- The runtime executes parameterized, read-only SQL only, with server-side row caps and statement timeouts.
+
+Manifests never contain DSNs or secrets. They store a `connection_ref`, and `bridge mcp serve` resolves `bridge.yaml` relative to the manifest location so the same generated artifact can be launched from another working directory.
+
+MVP scope: Postgres only, selected schema only, tables and views, `list_*` plus deterministic `get_*_by_*`, stdio transport, read-only execution. Raw SQL, writes, and multi-table query planning are intentionally out of scope.
 
 ## Configuration
 

@@ -17,11 +17,12 @@ pub mod filesystem;
 pub mod postgres;
 pub mod sqlite;
 
-use crate::config::{expand_env_vars, ProviderConfig};
+use crate::config::{expand_env_vars, load_config, load_config_from, BridgeConfig, ProviderConfig};
 use crate::context::{ContextEntry, ContextValue};
 use crate::error::{BridgeError, Result};
 use async_trait::async_trait;
 use serde::Serialize;
+use std::path::Path;
 
 pub const SUPPORTED_PROVIDER_TYPES: &[&str] = &["filesystem", "postgres", "sqlite"];
 
@@ -89,6 +90,45 @@ pub fn supported_provider_types() -> String {
     SUPPORTED_PROVIDER_TYPES.join(", ")
 }
 
+pub fn named_provider_config(config: &BridgeConfig, name: &str) -> Result<ProviderConfig> {
+    let provider_config = config.providers.get(name).ok_or_else(|| {
+        BridgeError::ProviderNotFound(
+            name.to_string(),
+            config
+                .providers
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", "),
+        )
+    })?;
+
+    let expanded_uri = expand_env_vars(&provider_config.uri)?;
+    Ok(ProviderConfig {
+        provider_type: provider_config.provider_type.clone(),
+        uri: expanded_uri,
+    })
+}
+
+pub fn load_named_provider_config(name: &str, config_dir: Option<&Path>) -> Result<ProviderConfig> {
+    let config = match config_dir {
+        Some(dir) => load_config_from(dir)?,
+        None => load_config()?,
+    };
+    named_provider_config(&config, name)
+}
+
+pub async fn connect_with_timeout(
+    provider: &mut dyn Provider,
+    config: &ProviderConfig,
+    timeout_secs: u64,
+) -> Result<()> {
+    let timeout = tokio::time::Duration::from_secs(timeout_secs);
+    tokio::time::timeout(timeout, provider.connect(config))
+        .await
+        .map_err(|_| BridgeError::Timeout(timeout_secs))?
+}
+
 /// Expand env vars in the URI, connect, and run a health check with a
 /// per-stage timeout. Always returns a `ProviderStatus` — success or
 /// structured failure — so callers can render it uniformly.
@@ -96,8 +136,15 @@ pub fn supported_provider_types() -> String {
 /// Used by both `bridge status` and `bridge connect` (for verification)
 /// so the two commands can never disagree about what "healthy" means.
 pub async fn probe_provider(config: &ProviderConfig, timeout_secs: u64) -> ProviderStatus {
-    let expanded_uri = match expand_env_vars(&config.uri) {
-        Ok(uri) => uri,
+    let expanded_config = match named_provider_config(
+        &BridgeConfig {
+            version: "1".into(),
+            name: "probe".into(),
+            providers: std::iter::once(("probe".to_string(), config.clone())).collect(),
+        },
+        "probe",
+    ) {
+        Ok(config) => config,
         Err(e) => {
             return ProviderStatus {
                 connected: false,
@@ -105,11 +152,6 @@ pub async fn probe_provider(config: &ProviderConfig, timeout_secs: u64) -> Provi
                 message: Some(format!("Config error: {e}")),
             };
         }
-    };
-
-    let expanded_config = ProviderConfig {
-        provider_type: config.provider_type.clone(),
-        uri: expanded_uri,
     };
 
     let mut provider = match create_provider(&config.provider_type) {
@@ -123,26 +165,18 @@ pub async fn probe_provider(config: &ProviderConfig, timeout_secs: u64) -> Provi
         }
     };
 
-    let timeout = tokio::time::Duration::from_secs(timeout_secs);
-
-    match tokio::time::timeout(timeout, provider.connect(&expanded_config)).await {
-        Ok(Ok(())) => {}
-        Ok(Err(e)) => {
+    match connect_with_timeout(&mut *provider, &expanded_config, timeout_secs).await {
+        Ok(()) => {}
+        Err(e) => {
             return ProviderStatus {
                 connected: false,
                 latency_ms: None,
                 message: Some(format!("Connection failed: {e}")),
             };
         }
-        Err(_) => {
-            return ProviderStatus {
-                connected: false,
-                latency_ms: None,
-                message: Some(format!("Connection timed out after {timeout_secs}s")),
-            };
-        }
     }
 
+    let timeout = tokio::time::Duration::from_secs(timeout_secs);
     match tokio::time::timeout(timeout, provider.health()).await {
         Ok(Ok(status)) => status,
         Ok(Err(e)) => ProviderStatus {

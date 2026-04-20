@@ -121,19 +121,30 @@ pub enum Commands {
 pub enum GenerateTarget {
     /// Generate a bridge.mcp/v1 manifest
     Mcp {
-        /// Source kind (currently only `openapi`) followed by a path to the spec
-        #[arg(long = "from", num_args = 2, value_names = ["KIND", "PATH"])]
+        /// Source kind. Use `--from openapi <path>` for an OpenAPI spec, or
+        /// `--from db` together with `--connection <name>` for a Bridge DB
+        /// connection.
+        #[arg(long = "from", num_args = 1..=2, value_names = ["KIND", "PATH"])]
         from: Vec<String>,
+
+        /// Name of a Bridge connection (from bridge.yaml) to introspect.
+        /// Required when `--from db`.
+        #[arg(long = "connection")]
+        connection: Option<String>,
+
+        /// Schema to introspect. Defaults to `public` for Postgres.
+        #[arg(long = "schema")]
+        schema: Option<String>,
 
         /// Name for the generated MCP server
         #[arg(long)]
         name: String,
 
-        /// Environment variable holding the API base URL
+        /// Environment variable holding the API base URL (OpenAPI only)
         #[arg(long = "base-url-env")]
         base_url_env: Option<String>,
 
-        /// Environment variable holding the bearer token for the API
+        /// Environment variable holding the bearer token for the API (OpenAPI only)
         #[arg(long = "bearer-env")]
         bearer_env: Option<String>,
 

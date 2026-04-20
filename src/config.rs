@@ -16,7 +16,7 @@
 use crate::error::{BridgeError, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const CONFIG_FILENAME: &str = "bridge.yaml";
 
@@ -52,19 +52,33 @@ pub fn config_path() -> PathBuf {
 
 /// Check if bridge.yaml exists in the current directory.
 pub fn config_exists() -> bool {
-    config_path().exists()
+    std::env::current_dir()
+        .ok()
+        .and_then(|dir| find_config_path_from(&dir))
+        .is_some()
 }
 
-/// Load bridge.yaml from the current directory.
-pub fn load_config() -> Result<BridgeConfig> {
-    let path = config_path();
-    if !path.exists() {
-        return Err(BridgeError::ConfigNotFound);
-    }
+/// Search `start_dir` and then each parent directory for `bridge.yaml`.
+pub fn find_config_path_from(start_dir: &Path) -> Option<PathBuf> {
+    start_dir
+        .ancestors()
+        .map(|dir| dir.join(CONFIG_FILENAME))
+        .find(|candidate| candidate.exists())
+}
+
+/// Load bridge.yaml from `start_dir` or one of its parent directories.
+pub fn load_config_from(start_dir: &Path) -> Result<BridgeConfig> {
+    let path = find_config_path_from(start_dir).ok_or(BridgeError::ConfigNotFound)?;
     let content = std::fs::read_to_string(&path)?;
     let config: BridgeConfig =
         serde_yaml::from_str(&content).map_err(|e| BridgeError::ConfigParse(e.to_string()))?;
     Ok(config)
+}
+
+/// Load bridge.yaml from the current directory or one of its parents.
+pub fn load_config() -> Result<BridgeConfig> {
+    let cwd = std::env::current_dir()?;
+    load_config_from(&cwd)
 }
 
 /// Save bridge.yaml to the current directory.
@@ -242,5 +256,28 @@ mod tests {
         assert!(!is_valid_env_var_name("123DB"));
         assert!(!is_valid_env_var_name("${DATABASE_URL}"));
         assert!(!is_valid_env_var_name("postgres://localhost"));
+    }
+
+    #[test]
+    fn test_find_config_path_from_searches_parent_directories() {
+        let dir = tempfile::tempdir().unwrap();
+        let nested = dir.path().join("a/b/c");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(dir.path().join("bridge.yaml"), "version: '1'\nname: t\n").unwrap();
+
+        let found = find_config_path_from(&nested).unwrap();
+        assert_eq!(found, dir.path().join("bridge.yaml"));
+    }
+
+    #[test]
+    fn test_load_config_from_uses_nearest_parent_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = dir.path().join("project");
+        let nested = project.join("subdir/deeper");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(project.join("bridge.yaml"), "version: '1'\nname: project\n").unwrap();
+
+        let config = load_config_from(&nested).unwrap();
+        assert_eq!(config.name, "project");
     }
 }

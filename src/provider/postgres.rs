@@ -17,10 +17,14 @@ use async_trait::async_trait;
 use regex::Regex;
 use sqlx::postgres::PgPool;
 use sqlx::Row;
+use std::path::Path;
 use std::sync::LazyLock;
 use std::time::Instant;
 
-use super::{Provider, ProviderCapabilities, ProviderStatus, ReadOptions};
+use super::{
+    connect_with_timeout, load_named_provider_config, Provider, ProviderCapabilities,
+    ProviderStatus, ReadOptions,
+};
 use crate::config::ProviderConfig;
 use crate::context::{ContextData, ContextEntry, ContextMetadata, ContextValue, EntryType};
 use crate::error::{redact_uri, BridgeError, Result};
@@ -45,6 +49,28 @@ impl PostgresProvider {
         self.pool
             .as_ref()
             .ok_or_else(|| BridgeError::ProviderError("Not connected".to_string()))
+    }
+
+    pub fn pool_handle(&self) -> Result<PgPool> {
+        Ok(self.pool()?.clone())
+    }
+
+    pub async fn connect_named(
+        connection_name: &str,
+        config_dir: Option<&Path>,
+        timeout_secs: u64,
+    ) -> Result<Self> {
+        let config = load_named_provider_config(connection_name, config_dir)?;
+        if config.provider_type != "postgres" {
+            return Err(BridgeError::UnsupportedOperation(format!(
+                "postgres connection '{connection_name}' is of type '{}'",
+                config.provider_type
+            )));
+        }
+
+        let mut provider = Self::new();
+        connect_with_timeout(&mut provider, &config, timeout_secs).await?;
+        Ok(provider)
     }
 }
 
