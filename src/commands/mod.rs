@@ -14,8 +14,10 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 pub mod connect;
+pub mod generate;
 pub mod init;
 pub mod ls;
+pub mod mcp;
 pub mod read;
 pub mod remove;
 pub mod status;

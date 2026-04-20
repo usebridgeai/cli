@@ -18,24 +18,32 @@ mod commands;
 mod config;
 mod context;
 mod error;
+mod mcp;
 mod provider;
 mod update;
 
 use clap::{CommandFactory, Parser};
-use cli::{Cli, Commands};
+use cli::{Cli, Commands, GenerateTarget, McpAction};
 
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
     let timeout = cli.timeout;
-
-    // Suppress the passive notice when the user is already running `bridge update`
-    let is_update_cmd = matches!(cli.command, Commands::Update { .. });
+    use std::io::IsTerminal;
+    let should_check_updates =
+        should_run_passive_update_check(&cli.command, std::io::stderr().is_terminal());
 
     // Check for available updates from the local cache (no blocking I/O).
     // If the cache is stale, a background HTTP fetch is started concurrently
     // with the main command and awaited (with timeout) before exit.
-    let mut update_notice = update::check_update_notice();
+    let mut update_notice = if should_check_updates {
+        update::check_update_notice()
+    } else {
+        update::UpdateNotice {
+            version: None,
+            refresh: None,
+        }
+    };
 
     let result = match cli.command {
         Commands::Init => commands::init::execute().await,
@@ -59,6 +67,22 @@ async fn main() {
             clap_complete::generate(shell, &mut Cli::command(), "bridge", &mut std::io::stdout());
             return;
         }
+        Commands::Generate { target } => match target {
+            GenerateTarget::Mcp {
+                from,
+                name,
+                base_url_env,
+                bearer_env,
+                out,
+                force,
+            } => {
+                commands::generate::execute_mcp(from, name, base_url_env, bearer_env, out, force)
+                    .await
+            }
+        },
+        Commands::Mcp { action } => match action {
+            McpAction::Serve { manifest } => commands::mcp::execute_serve(manifest, timeout).await,
+        },
     };
 
     if let Err(e) = result {
@@ -72,7 +96,7 @@ async fn main() {
     // Print update notice to stderr for interactive sessions only.
     // Suppressed when: non-TTY (agents, pipes, CI), BRIDGE_NO_UPDATE_CHECK is set,
     // or the user is already running `bridge update`.
-    if !is_update_cmd {
+    if should_check_updates {
         print_update_notice(update_notice.version.as_deref());
     }
 
@@ -92,5 +116,62 @@ fn print_update_notice(version: Option<&str>) {
             eprintln!("  Run `bridge update` to upgrade.");
             eprintln!();
         }
+    }
+}
+
+fn should_run_passive_update_check(command: &Commands, stderr_is_terminal: bool) -> bool {
+    if !stderr_is_terminal {
+        return false;
+    }
+
+    !matches!(
+        command,
+        Commands::Update { .. }
+            | Commands::Completions { .. }
+            | Commands::Mcp {
+                action: McpAction::Serve { .. }
+            }
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_run_passive_update_check;
+    use crate::cli::{Commands, GenerateTarget, McpAction};
+    use clap_complete::Shell;
+
+    #[test]
+    fn passive_update_check_is_disabled_for_mcp_serve() {
+        let command = Commands::Mcp {
+            action: McpAction::Serve {
+                manifest: "petstore.mcp.yaml".into(),
+            },
+        };
+
+        assert!(!should_run_passive_update_check(&command, true));
+    }
+
+    #[test]
+    fn passive_update_check_requires_a_terminal() {
+        let command = Commands::Generate {
+            target: GenerateTarget::Mcp {
+                from: vec!["openapi".into(), "spec.yaml".into()],
+                name: "petstore".into(),
+                base_url_env: None,
+                bearer_env: None,
+                out: "out.yaml".into(),
+                force: false,
+            },
+        };
+
+        assert!(!should_run_passive_update_check(&command, false));
+        assert!(should_run_passive_update_check(&command, true));
+    }
+
+    #[test]
+    fn passive_update_check_is_disabled_for_completions() {
+        let command = Commands::Completions { shell: Shell::Bash };
+
+        assert!(!should_run_passive_update_check(&command, true));
     }
 }

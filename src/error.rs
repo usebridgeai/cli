@@ -81,6 +81,21 @@ pub enum BridgeError {
     #[error("Invalid identifier: '{0}'. Table and column names must match [a-zA-Z_][a-zA-Z0-9_]*")]
     InvalidIdentifier(String),
 
+    #[error("Manifest error: {0}")]
+    Manifest(String),
+
+    #[error("OpenAPI parse error: {0}")]
+    OpenApi(String),
+
+    #[error("MCP runtime error: {0}")]
+    McpRuntime(String),
+
+    #[error("Invalid input for tool '{tool}': {reason}")]
+    ToolInputInvalid { tool: String, reason: String },
+
+    #[error("HTTP request failed: {0}")]
+    Http(String),
+
     #[error(transparent)]
     Io(#[from] std::io::Error),
 
@@ -115,6 +130,11 @@ impl BridgeError {
             Self::Timeout(_) => "timeout",
             Self::UpdateFailed(_) => "update_failed",
             Self::InvalidIdentifier(_) => "invalid_identifier",
+            Self::Manifest(_) => "manifest_error",
+            Self::OpenApi(_) => "openapi_error",
+            Self::McpRuntime(_) => "mcp_runtime_error",
+            Self::ToolInputInvalid { .. } => "tool_input_invalid",
+            Self::Http(_) => "http_error",
             Self::Io(_) => "io_error",
             Self::Sqlx(_) => "database_error",
             Self::SerdeJson(_) => "json_error",

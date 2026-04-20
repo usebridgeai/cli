@@ -103,4 +103,56 @@ pub enum Commands {
         /// Shell to generate completions for
         shell: Shell,
     },
+
+    /// Generate artifacts from a source (e.g. an MCP manifest from OpenAPI)
+    Generate {
+        #[command(subcommand)]
+        target: GenerateTarget,
+    },
+
+    /// MCP (Model Context Protocol) commands
+    Mcp {
+        #[command(subcommand)]
+        action: McpAction,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum GenerateTarget {
+    /// Generate a bridge.mcp/v1 manifest
+    Mcp {
+        /// Source kind (currently only `openapi`) followed by a path to the spec
+        #[arg(long = "from", num_args = 2, value_names = ["KIND", "PATH"])]
+        from: Vec<String>,
+
+        /// Name for the generated MCP server
+        #[arg(long)]
+        name: String,
+
+        /// Environment variable holding the API base URL
+        #[arg(long = "base-url-env")]
+        base_url_env: Option<String>,
+
+        /// Environment variable holding the bearer token for the API
+        #[arg(long = "bearer-env")]
+        bearer_env: Option<String>,
+
+        /// Output path for the generated manifest
+        #[arg(long, value_hint = ValueHint::FilePath)]
+        out: String,
+
+        /// Overwrite an existing manifest at `--out`
+        #[arg(long)]
+        force: bool,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum McpAction {
+    /// Serve an MCP manifest as a live MCP server over stdio
+    Serve {
+        /// Path to the bridge.mcp/v1 manifest
+        #[arg(value_hint = ValueHint::FilePath)]
+        manifest: String,
+    },
 }

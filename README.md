@@ -149,6 +149,52 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design.
 | `bridge status`                    | Show health of all connections     |
 | `bridge ls --from <name>`          | List contents (files, tables)      |
 | `bridge read <path> --from <name>` | Read context from a source         |
+| `bridge generate mcp --from openapi <spec> --name <n> --out <file>` | Generate a bridge.mcp/v1 manifest from an OpenAPI spec |
+| `bridge mcp serve <manifest>`      | Serve an MCP manifest as a live MCP server over stdio |
+
+## MCP servers from OpenAPI
+
+Bridge can turn any OpenAPI spec into a live MCP server — no hand-written MCP code required.
+
+### Happy path
+
+```bash
+# 1. Generate a manifest from an OpenAPI spec.
+bridge generate mcp \
+  --from openapi ./openapi.yaml \
+  --name petstore \
+  --base-url-env PETSTORE_BASE_URL \
+  --out ./petstore.mcp.yaml
+
+# 2. Serve it as an MCP server over stdio.
+export PETSTORE_BASE_URL=https://petstore.example.com
+bridge mcp serve ./petstore.mcp.yaml
+```
+
+Generation prints a ready-to-paste MCP client config snippet. Pipe stdin/stdout into any MCP-compatible client (Claude Desktop, Cursor, etc.).
+
+If the OpenAPI spec includes a usable `servers` entry, `--base-url-env` is optional. In that case Bridge stores the first usable server URL in the manifest as a fallback, and a `--base-url-env` value becomes an environment-specific override.
+
+### With bearer auth
+
+```bash
+bridge generate mcp \
+  --from openapi ./openapi.yaml \
+  --name github \
+  --base-url-env GITHUB_API_BASE_URL \
+  --bearer-env GITHUB_TOKEN \
+  --out ./github.mcp.yaml
+
+export GITHUB_API_BASE_URL=https://api.github.com
+export GITHUB_TOKEN=ghp_xxx
+bridge mcp serve ./github.mcp.yaml
+```
+
+Secrets are **never** written to the manifest — only the env var name is stored. `bridge mcp serve` fails fast with a clear error if a required env var is missing.
+
+Bridge inlines local OpenAPI schema refs into generated tool input schemas, so MCP clients and runtime validation do not depend on the original OpenAPI components section. Response schemas are best-effort metadata: recursive response models may omit `outputSchema`, but the tool is still generated and callable.
+
+MVP scope: OpenAPI 3.0 input, GET operations only, stdio transport, bearer-token auth. POST/PUT/PATCH/DELETE are reported as skipped and left as additive follow-on work.
 
 ## Configuration
 

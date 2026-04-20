@@ -2,6 +2,16 @@
 
 All notable changes to Bridge CLI will be documented in this file.
 
+## [Unreleased]
+
+### Features
+
+- **MCP generation from OpenAPI.** `bridge generate mcp --from openapi <spec>` produces a versioned `bridge.mcp/v1` manifest from any OpenAPI 3.0 spec.
+- **MCP runtime.** `bridge mcp serve <manifest>` runs the manifest as a live MCP server over stdio (JSON-RPC 2.0), implementing `initialize`, `tools/list`, and `tools/call` with MCP structuredContent + text fallback.
+- **Manifest-first architecture.** Generation and runtime share a single typed contract so Bridge Cloud can host the same manifest later without format changes.
+- **Environment-driven auth.** Base URL and bearer tokens are env-var references in the manifest; secrets are never persisted. When an OpenAPI spec includes `servers`, Bridge stores the first usable server URL as a manifest fallback.
+- **Schema-aware generation.** Local OpenAPI schema refs are inlined into generated input schemas, and recursive response schemas fall back gracefully by omitting `outputSchema` instead of dropping the tool.
+
 ## [1.0.0] - 2026-03-30
 
 Initial public release.
