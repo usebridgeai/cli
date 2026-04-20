@@ -105,8 +105,8 @@ async fn main() {
                 shutdown_grace_secs,
                 allow_origin,
             } => {
-                commands::mcp::execute_serve_http(
-                    manifest,
+                commands::mcp::execute_serve_http(commands::mcp::ServeHttpArgs {
+                    manifest_path: manifest,
                     bind,
                     public_url,
                     max_header_bytes,
@@ -115,8 +115,8 @@ async fn main() {
                     request_timeout_secs,
                     shutdown_grace_secs,
                     allow_origin,
-                    timeout,
-                )
+                    timeout_secs: timeout,
+                })
                 .await
             }
         },

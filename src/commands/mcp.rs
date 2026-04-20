@@ -13,30 +13,39 @@ pub async fn execute_serve(manifest_path: String, timeout_secs: u64) -> Result<(
     runtime::serve(manifest, timeout_secs, &config_dir).await
 }
 
-pub async fn execute_serve_http(
-    manifest_path: String,
-    bind: String,
-    public_url: Option<String>,
-    max_header_bytes: usize,
-    max_body_bytes: usize,
-    read_timeout_secs: u64,
-    request_timeout_secs: Option<u64>,
-    shutdown_grace_secs: u64,
-    allow_origin: Vec<String>,
-    timeout_secs: u64,
-) -> Result<()> {
-    let (manifest, config_dir) = load_manifest(manifest_path)?;
+pub struct ServeHttpArgs {
+    pub manifest_path: String,
+    pub bind: String,
+    pub public_url: Option<String>,
+    pub max_header_bytes: usize,
+    pub max_body_bytes: usize,
+    pub read_timeout_secs: u64,
+    pub request_timeout_secs: Option<u64>,
+    pub shutdown_grace_secs: u64,
+    pub allow_origin: Vec<String>,
+    pub timeout_secs: u64,
+}
+
+pub async fn execute_serve_http(args: ServeHttpArgs) -> Result<()> {
+    let (manifest, config_dir) = load_manifest(args.manifest_path)?;
     let config = HostedHttpConfig::new(
-        bind,
-        public_url,
-        max_header_bytes,
-        max_body_bytes,
-        read_timeout_secs,
-        request_timeout_secs.unwrap_or(timeout_secs),
-        shutdown_grace_secs,
+        args.bind,
+        args.public_url,
+        args.max_header_bytes,
+        args.max_body_bytes,
+        args.read_timeout_secs,
+        args.request_timeout_secs.unwrap_or(args.timeout_secs),
+        args.shutdown_grace_secs,
     )?;
-    let origin_policy = OriginPolicy::new(allow_origin);
-    http::serve(manifest, config, timeout_secs, &config_dir, origin_policy).await
+    let origin_policy = OriginPolicy::new(args.allow_origin);
+    http::serve(
+        manifest,
+        config,
+        args.timeout_secs,
+        &config_dir,
+        origin_policy,
+    )
+    .await
 }
 
 /// Resolve the manifest path and the directory Bridge should treat as the
