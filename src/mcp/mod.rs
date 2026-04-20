@@ -9,5 +9,6 @@ pub mod manifest;
 pub mod openapi;
 pub mod runtime;
 pub mod schema;
+pub mod service;
 pub mod sql_executor;
 pub mod tool_mapper;

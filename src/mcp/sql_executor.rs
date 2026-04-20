@@ -9,8 +9,10 @@
 
 use crate::error::{BridgeError, Result};
 use crate::mcp::manifest::{LimitSpec, Manifest, SqlColumnType, SqlSelectExecute, SqlSelectMode};
+use crate::mcp::service::SqlExecuting;
 use crate::provider::load_named_provider_config;
 use crate::provider::postgres::PostgresProvider;
+use async_trait::async_trait;
 use serde_json::Value;
 use sqlx::postgres::PgPool;
 use sqlx::Row;
@@ -268,6 +270,13 @@ impl SqlExecutor {
                 }
             }
         }
+    }
+}
+
+#[async_trait]
+impl SqlExecuting for SqlExecutor {
+    async fn call(&self, plan: &SqlSelectExecute, input: &Value) -> Result<Value> {
+        SqlExecutor::call(self, plan, input).await
     }
 }
 
