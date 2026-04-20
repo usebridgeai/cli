@@ -94,6 +94,11 @@ async fn main() {
         },
         Commands::Mcp { action } => match action {
             McpAction::Serve { manifest } => commands::mcp::execute_serve(manifest, timeout).await,
+            McpAction::ServeHttp {
+                manifest,
+                bind,
+                allow_origin,
+            } => commands::mcp::execute_serve_http(manifest, bind, allow_origin, timeout).await,
         },
     };
 
@@ -141,7 +146,7 @@ fn should_run_passive_update_check(command: &Commands, stderr_is_terminal: bool)
         Commands::Update { .. }
             | Commands::Completions { .. }
             | Commands::Mcp {
-                action: McpAction::Serve { .. }
+                action: McpAction::Serve { .. } | McpAction::ServeHttp { .. }
             }
     )
 }

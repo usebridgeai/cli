@@ -98,10 +98,7 @@ impl McpService {
     /// Process a single JSON-RPC 2.0 request. Returns `None` for notifications
     /// (requests without an `id`) — the caller must not write anything back.
     pub async fn handle_jsonrpc(&self, request: Value) -> Option<Value> {
-        let method = request
-            .get("method")
-            .and_then(|m| m.as_str())
-            .unwrap_or("");
+        let method = request.get("method").and_then(|m| m.as_str()).unwrap_or("");
         let id = request.get("id").cloned();
         let params = request.get("params").cloned().unwrap_or(Value::Null);
         let is_notification = id.is_none();

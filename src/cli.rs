@@ -166,4 +166,22 @@ pub enum McpAction {
         #[arg(value_hint = ValueHint::FilePath)]
         manifest: String,
     },
+
+    /// Serve an MCP manifest remotely over HTTP (Streamable HTTP transport)
+    ServeHttp {
+        /// Path to the bridge.mcp/v1 manifest
+        #[arg(value_hint = ValueHint::FilePath)]
+        manifest: String,
+
+        /// Address to bind (host:port). Defaults to 127.0.0.1:8080
+        #[arg(long, default_value = "127.0.0.1:8080")]
+        bind: String,
+
+        /// Additional Origin values to accept in addition to loopback. Repeat
+        /// for multiple. Requests with no Origin header are always allowed
+        /// (non-browser clients do not send one); browser-originated requests
+        /// must match loopback or an entry passed here.
+        #[arg(long = "allow-origin", value_name = "ORIGIN")]
+        allow_origin: Vec<String>,
+    },
 }
