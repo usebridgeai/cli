@@ -9,6 +9,7 @@
 // DATABASE_URL, matching tests/mcp_db_test.rs.
 
 use assert_cmd::cargo::CommandCargoExt;
+use predicates::str::contains;
 use serde_json::{json, Value};
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
@@ -147,6 +148,27 @@ fn post_plain(addr: SocketAddr, body: &[u8]) -> (String, Vec<u8>) {
     (status, raw[sep + 4..].to_vec())
 }
 
+fn get_plain(addr: SocketAddr, path: &str) -> (String, Vec<u8>) {
+    let request = format!(
+        "GET {path} HTTP/1.1\r\n\
+         Host: {addr}\r\n\
+         Connection: close\r\n\r\n",
+    );
+    let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(2)).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    stream.write_all(request.as_bytes()).unwrap();
+    stream.flush().unwrap();
+    let mut raw = Vec::new();
+    stream.read_to_end(&mut raw).unwrap();
+    let sep = raw.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+    let status = std::str::from_utf8(&raw[..raw.iter().position(|&b| b == b'\r').unwrap()])
+        .unwrap()
+        .to_string();
+    (status, raw[sep + 4..].to_vec())
+}
+
 fn generate_petstore_manifest(out: &Path) {
     let status = StdCommand::cargo_bin("bridge")
         .unwrap()
@@ -166,6 +188,52 @@ fn generate_petstore_manifest(out: &Path) {
         .status()
         .unwrap();
     assert!(status.success(), "generate failed");
+}
+
+fn write_db_manifest(path: &Path) {
+    std::fs::write(
+        path,
+        r#"
+kind: bridge.mcp/v1
+name: analytics
+source:
+  type: db
+  connection: analytics
+  dialect: postgres
+  schema: public
+runtime:
+  transport: stdio
+tools:
+  - name: list_customers
+    annotations:
+      readOnlyHint: true
+      destructiveHint: false
+      idempotentHint: true
+      openWorldHint: false
+    input_schema:
+      type: object
+      properties:
+        order_by:
+          type: string
+          enum: [id]
+      additionalProperties: false
+    execute:
+      type: sql_select
+      connection_ref: analytics
+      schema: public
+      table: customers
+      mode: list
+      selectable_columns: [id]
+      column_types:
+        id: integer
+      filterable_columns: []
+      sortable_columns: [id]
+      limit:
+        default: 50
+        max: 200
+"#,
+    )
+    .unwrap();
 }
 
 struct ServerGuard {
@@ -289,6 +357,57 @@ fn http_rejects_unknown_paths_and_methods() {
     assert!(status.starts_with("HTTP/1.1 400"), "got: {status}");
     let v: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(v["error"]["code"], -32700);
+}
+
+#[test]
+fn http_health_and_readiness_endpoints_advertise_public_url() {
+    let tmp = TempDir::new().unwrap();
+    let manifest = tmp.path().join("petstore.mcp.yaml");
+    generate_petstore_manifest(&manifest);
+    let server = ServerGuard::spawn(
+        &manifest,
+        &[
+            ("BRIDGE_TEST_PETSTORE_BASE_URL", "http://localhost:1"),
+            ("BRIDGE_MCP_PUBLIC_URL", "https://mcp.example.test/team-a"),
+        ],
+        None,
+    );
+
+    let (status, body) = get_plain(server.addr, "/healthz");
+    assert!(status.starts_with("HTTP/1.1 200"), "got: {status}");
+    let health: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(health["status"], "ok");
+    assert_eq!(health["mcp_url"], "https://mcp.example.test/team-a/mcp");
+    assert_eq!(
+        health["health_url"],
+        "https://mcp.example.test/team-a/healthz"
+    );
+    assert_eq!(
+        health["readiness_url"],
+        "https://mcp.example.test/team-a/readyz"
+    );
+
+    let (status, body) = get_plain(server.addr, "/readyz");
+    assert!(status.starts_with("HTTP/1.1 200"), "got: {status}");
+    let ready: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(ready["status"], "ready");
+    assert_eq!(ready["ok"], true);
+}
+
+#[test]
+fn http_enforces_configurable_body_size_limit() {
+    let tmp = TempDir::new().unwrap();
+    let manifest = tmp.path().join("petstore.mcp.yaml");
+    generate_petstore_manifest(&manifest);
+    let server = ServerGuard::spawn_with_args(
+        &manifest,
+        &[("BRIDGE_TEST_PETSTORE_BASE_URL", "http://localhost:1")],
+        None,
+        &["--max-body-bytes", "8"],
+    );
+
+    let (status, _) = post_plain(server.addr, br#"{"jsonrpc":"2.0"}"#);
+    assert!(status.starts_with("HTTP/1.1 413"), "got: {status}");
 }
 
 #[test]
@@ -434,6 +553,114 @@ fn http_notifications_produce_202_no_body() {
     let (status, body_bytes) = post_plain(server.addr, &body);
     assert!(status.starts_with("HTTP/1.1 202"), "got: {status}");
     assert!(body_bytes.is_empty());
+}
+
+#[test]
+fn http_serve_fails_cleanly_when_bridge_config_is_missing() {
+    let manifest_dir = TempDir::new().unwrap();
+    let elsewhere = TempDir::new().unwrap();
+    let manifest = manifest_dir.path().join("analytics.mcp.yaml");
+    write_db_manifest(&manifest);
+
+    bridge_assert()
+        .args(["mcp", "serve-http", manifest.to_str().unwrap()])
+        .current_dir(elsewhere.path())
+        .assert()
+        .failure()
+        .stderr(contains("bridge.yaml"));
+}
+
+#[test]
+fn http_serve_fails_cleanly_when_required_db_env_var_is_missing() {
+    let project = TempDir::new().unwrap();
+    let elsewhere = TempDir::new().unwrap();
+    let manifest = project.path().join("analytics.mcp.yaml");
+    std::fs::write(
+        project.path().join("bridge.yaml"),
+        r#"
+version: "1"
+name: analytics
+providers:
+  analytics:
+    type: postgres
+    uri: ${BRIDGE_TEST_MISSING_DATABASE_URL}
+"#,
+    )
+    .unwrap();
+    write_db_manifest(&manifest);
+
+    bridge_assert()
+        .env_remove("BRIDGE_TEST_MISSING_DATABASE_URL")
+        .args(["mcp", "serve-http", manifest.to_str().unwrap()])
+        .current_dir(elsewhere.path())
+        .assert()
+        .failure()
+        .stderr(contains("BRIDGE_TEST_MISSING_DATABASE_URL"));
+}
+
+#[test]
+fn http_serve_fails_cleanly_when_manifest_is_invalid() {
+    let tmp = TempDir::new().unwrap();
+    let manifest = tmp.path().join("broken.mcp.yaml");
+    std::fs::write(
+        &manifest,
+        r#"
+kind: nope
+name: broken
+source:
+  type: openapi
+  path: ./spec.yaml
+runtime:
+  transport: stdio
+tools: []
+"#,
+    )
+    .unwrap();
+
+    bridge_assert()
+        .args(["mcp", "serve-http", manifest.to_str().unwrap()])
+        .assert()
+        .failure()
+        .stderr(contains("unsupported manifest kind"));
+}
+
+#[test]
+fn http_db_manifest_resolves_config_relative_to_manifest() {
+    let project = TempDir::new().unwrap();
+    let elsewhere = TempDir::new().unwrap();
+    let manifest = project.path().join("analytics.mcp.yaml");
+
+    bridge_assert()
+        .arg("init")
+        .current_dir(project.path())
+        .assert()
+        .success();
+    bridge_assert()
+        .args([
+            "connect",
+            "postgres://localhost:5432/bridge_test",
+            "--as",
+            "analytics",
+            "--no-verify",
+        ])
+        .current_dir(project.path())
+        .assert()
+        .success();
+    write_db_manifest(&manifest);
+
+    let server = ServerGuard::spawn(&manifest, &[], Some(elsewhere.path()));
+
+    let init = post_jsonrpc(
+        server.addr,
+        &json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}),
+    );
+    assert_eq!(init["result"]["protocolVersion"], "2024-11-05");
+
+    let list = post_jsonrpc(
+        server.addr,
+        &json!({"jsonrpc":"2.0","id":2,"method":"tools/list"}),
+    );
+    assert_eq!(list["result"]["tools"][0]["name"], "list_customers");
 }
 
 // ─── DB-backed tools/call (requires DATABASE_URL) ───────────────────────────

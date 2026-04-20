@@ -174,8 +174,51 @@ pub enum McpAction {
         manifest: String,
 
         /// Address to bind (host:port). Defaults to 127.0.0.1:8080
-        #[arg(long, default_value = "127.0.0.1:8080")]
+        #[arg(long, env = "BRIDGE_MCP_BIND", default_value = "127.0.0.1:8080")]
         bind: String,
+
+        /// Public base URL advertised in health output and startup logs. Bridge
+        /// appends `/mcp`, `/healthz`, and `/readyz` to this value.
+        #[arg(long = "public-url", env = "BRIDGE_MCP_PUBLIC_URL")]
+        public_url: Option<String>,
+
+        /// Maximum HTTP header bytes accepted per request.
+        #[arg(
+            long = "max-header-bytes",
+            env = "BRIDGE_MCP_MAX_HEADER_BYTES",
+            default_value_t = 32 * 1024
+        )]
+        max_header_bytes: usize,
+
+        /// Maximum HTTP body bytes accepted per request.
+        #[arg(
+            long = "max-body-bytes",
+            env = "BRIDGE_MCP_MAX_BODY_BYTES",
+            default_value_t = 1024 * 1024
+        )]
+        max_body_bytes: usize,
+
+        /// Wall-clock budget for reading a single HTTP request off the wire.
+        #[arg(
+            long = "read-timeout-secs",
+            env = "BRIDGE_MCP_READ_TIMEOUT_SECS",
+            default_value_t = 15
+        )]
+        read_timeout_secs: u64,
+
+        /// Wall-clock budget for handling one HTTP request after it is read.
+        /// Defaults to the global `--timeout` if omitted.
+        #[arg(long = "request-timeout-secs", env = "BRIDGE_MCP_REQUEST_TIMEOUT_SECS")]
+        request_timeout_secs: Option<u64>,
+
+        /// Time to wait for in-flight requests during shutdown before forcing
+        /// them closed.
+        #[arg(
+            long = "shutdown-grace-secs",
+            env = "BRIDGE_MCP_SHUTDOWN_GRACE_SECS",
+            default_value_t = 10
+        )]
+        shutdown_grace_secs: u64,
 
         /// Additional Origin values to accept in addition to loopback. Repeat
         /// for multiple. Requests with no Origin header are always allowed

@@ -257,6 +257,7 @@ pub fn status_reason(code: u16) -> &'static str {
         408 => "Request Timeout",
         413 => "Payload Too Large",
         431 => "Request Header Fields Too Large",
+        503 => "Service Unavailable",
         _ => "Error",
     }
 }
@@ -273,7 +274,7 @@ mod tests {
 
     #[test]
     fn status_reasons_cover_common_codes() {
-        for c in [200, 202, 204, 400, 403, 404, 405, 408, 413, 431] {
+        for c in [200, 202, 204, 400, 403, 404, 405, 408, 413, 431, 503] {
             assert_ne!(status_reason(c), "Error");
         }
     }

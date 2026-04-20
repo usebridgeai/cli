@@ -154,6 +154,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design.
 | `bridge generate mcp --from openapi <spec> --name <n> --out <file>` | Generate a bridge.mcp/v1 manifest from an OpenAPI spec |
 | `bridge generate mcp --from db --connection <name> --schema <schema> --name <n> --out <file>` | Generate a bridge.mcp/v1 manifest from a Postgres connection |
 | `bridge mcp serve <manifest>`      | Serve an MCP manifest as a live MCP server over stdio |
+| `bridge mcp serve-http <manifest>` | Serve an MCP manifest remotely over HTTP |
 
 ## MCP servers from OpenAPI
 
@@ -232,6 +233,46 @@ Generated DB tools are intentionally conservative:
 Manifests never contain DSNs or secrets. They store a `connection_ref`, and `bridge mcp serve` resolves `bridge.yaml` relative to the manifest location so the same generated artifact can be launched from another working directory.
 
 MVP scope: Postgres only, selected schema only, tables and views, `list_*` plus deterministic `get_*_by_*`, stdio transport, read-only execution. Raw SQL, writes, and multi-table query planning are intentionally out of scope.
+
+## Hosted MCP over HTTP
+
+Bridge can also host a single `bridge.mcp/v1` manifest over Streamable HTTP for
+team use:
+
+```bash
+export DATABASE_URL=postgres://localhost:5432/analytics
+export BRIDGE_MCP_BIND=0.0.0.0:8080
+export BRIDGE_MCP_PUBLIC_URL=https://mcp.example.com/team-a
+
+bridge mcp serve-http ./analytics.mcp.yaml
+```
+
+Hosted mode is intentionally scoped to **one manifest, one database, one
+team**. The manifest remains the execution artifact; deployment details stay in
+flags and environment variables.
+
+What hosted mode provides:
+
+- `/mcp` for the MCP Streamable HTTP endpoint
+- `/healthz` and `/readyz` for load balancers and orchestration
+- Graceful shutdown on `SIGTERM`/Ctrl-C with a bounded drain window
+- Request header/body size caps and read/handling timeouts
+- Structured JSON logs on stderr
+- Fast startup failures when the manifest is invalid, `bridge.yaml` is missing,
+  or required env vars for DB/OpenAPI execution are not set
+
+Key `serve-http` settings:
+
+- `--bind` or `BRIDGE_MCP_BIND`
+- `--public-url` or `BRIDGE_MCP_PUBLIC_URL`
+- `--max-header-bytes` / `BRIDGE_MCP_MAX_HEADER_BYTES`
+- `--max-body-bytes` / `BRIDGE_MCP_MAX_BODY_BYTES`
+- `--read-timeout-secs` / `BRIDGE_MCP_READ_TIMEOUT_SECS`
+- `--request-timeout-secs` / `BRIDGE_MCP_REQUEST_TIMEOUT_SECS`
+- `--shutdown-grace-secs` / `BRIDGE_MCP_SHUTDOWN_GRACE_SECS`
+
+For the deployment model, reverse-proxy expectations, and startup checklist,
+see [docs/single-manifest-hosting.md](docs/single-manifest-hosting.md).
 
 ## Configuration
 

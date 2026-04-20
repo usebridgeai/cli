@@ -97,8 +97,28 @@ async fn main() {
             McpAction::ServeHttp {
                 manifest,
                 bind,
+                public_url,
+                max_header_bytes,
+                max_body_bytes,
+                read_timeout_secs,
+                request_timeout_secs,
+                shutdown_grace_secs,
                 allow_origin,
-            } => commands::mcp::execute_serve_http(manifest, bind, allow_origin, timeout).await,
+            } => {
+                commands::mcp::execute_serve_http(
+                    manifest,
+                    bind,
+                    public_url,
+                    max_header_bytes,
+                    max_body_bytes,
+                    read_timeout_secs,
+                    request_timeout_secs,
+                    shutdown_grace_secs,
+                    allow_origin,
+                    timeout,
+                )
+                .await
+            }
         },
     };
 

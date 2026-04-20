@@ -2,8 +2,8 @@
 // Copyright (c) 2026 Gabriel Beslic & Tomer Li Ran
 // SPDX-License-Identifier: AGPL-3.0-only
 
-use crate::error::{BridgeError, Result};
-use crate::mcp::http::OriginPolicy;
+use crate::error::Result;
+use crate::mcp::http::{HostedHttpConfig, OriginPolicy};
 use crate::mcp::manifest::Manifest;
 use crate::mcp::{http, runtime};
 use std::path::PathBuf;
@@ -16,15 +16,27 @@ pub async fn execute_serve(manifest_path: String, timeout_secs: u64) -> Result<(
 pub async fn execute_serve_http(
     manifest_path: String,
     bind: String,
+    public_url: Option<String>,
+    max_header_bytes: usize,
+    max_body_bytes: usize,
+    read_timeout_secs: u64,
+    request_timeout_secs: Option<u64>,
+    shutdown_grace_secs: u64,
     allow_origin: Vec<String>,
     timeout_secs: u64,
 ) -> Result<()> {
     let (manifest, config_dir) = load_manifest(manifest_path)?;
-    let addr = bind
-        .parse()
-        .map_err(|e| BridgeError::McpRuntime(format!("invalid --bind '{bind}': {e}")))?;
+    let config = HostedHttpConfig::new(
+        bind,
+        public_url,
+        max_header_bytes,
+        max_body_bytes,
+        read_timeout_secs,
+        request_timeout_secs.unwrap_or(timeout_secs),
+        shutdown_grace_secs,
+    )?;
     let origin_policy = OriginPolicy::new(allow_origin);
-    http::serve(manifest, addr, timeout_secs, &config_dir, origin_policy).await
+    http::serve(manifest, config, timeout_secs, &config_dir, origin_policy).await
 }
 
 /// Resolve the manifest path and the directory Bridge should treat as the
