@@ -17,7 +17,10 @@ pub mod filesystem;
 pub mod postgres;
 pub mod sqlite;
 
-use crate::config::{expand_env_vars, load_config, load_config_from, BridgeConfig, ProviderConfig};
+use crate::config::{
+    expand_env_vars, load_config, load_config_from, load_config_with_path_from, BridgeConfig,
+    ProviderConfig,
+};
 use crate::context::{ContextEntry, ContextValue};
 use crate::error::{BridgeError, Result};
 use async_trait::async_trait;
@@ -116,6 +119,24 @@ pub fn load_named_provider_config(name: &str, config_dir: Option<&Path>) -> Resu
         None => load_config()?,
     };
     named_provider_config(&config, name)
+}
+
+pub fn load_named_provider_config_with_root(
+    name: &str,
+    config_dir: Option<&Path>,
+) -> Result<(ProviderConfig, std::path::PathBuf)> {
+    let (config, path) = match config_dir {
+        Some(dir) => load_config_with_path_from(dir)?,
+        None => {
+            let cwd = std::env::current_dir()?;
+            load_config_with_path_from(&cwd)?
+        }
+    };
+    let root = path
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| Path::new(".").to_path_buf());
+    Ok((named_provider_config(&config, name)?, root))
 }
 
 pub async fn connect_with_timeout(

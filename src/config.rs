@@ -68,11 +68,17 @@ pub fn find_config_path_from(start_dir: &Path) -> Option<PathBuf> {
 
 /// Load bridge.yaml from `start_dir` or one of its parent directories.
 pub fn load_config_from(start_dir: &Path) -> Result<BridgeConfig> {
+    load_config_with_path_from(start_dir).map(|(config, _)| config)
+}
+
+/// Load bridge.yaml from `start_dir` or one of its parent directories, returning
+/// the exact config path that was discovered.
+pub fn load_config_with_path_from(start_dir: &Path) -> Result<(BridgeConfig, PathBuf)> {
     let path = find_config_path_from(start_dir).ok_or(BridgeError::ConfigNotFound)?;
     let content = std::fs::read_to_string(&path)?;
     let config: BridgeConfig =
         serde_yaml::from_str(&content).map_err(|e| BridgeError::ConfigParse(e.to_string()))?;
-    Ok(config)
+    Ok((config, path))
 }
 
 /// Load bridge.yaml from the current directory or one of its parents.

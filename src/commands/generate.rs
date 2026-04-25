@@ -7,7 +7,9 @@ use crate::mcp::db_introspector;
 use crate::mcp::db_tool_planner;
 use crate::mcp::manifest::{Auth, Manifest, Runtime, Source, Transport};
 use crate::mcp::{openapi, tool_mapper};
+use crate::provider::load_named_provider_config;
 use crate::provider::postgres::PostgresProvider;
+use crate::provider::sqlite::SqliteProvider;
 use serde_json::json;
 use std::path::{Path, PathBuf};
 
@@ -68,7 +70,6 @@ pub async fn execute_mcp(
                         .into(),
                 )
             })?;
-            let schema = schema.unwrap_or_else(|| "public".to_string());
             execute_mcp_db(connection_name, schema, name, out_path, timeout_secs).await
         }
         other => Err(BridgeError::UnsupportedOperation(format!(
@@ -132,45 +133,87 @@ async fn execute_mcp_openapi(
 
 async fn execute_mcp_db(
     connection_name: String,
-    schema: String,
+    schema: Option<String>,
     name: String,
     out_path: PathBuf,
     timeout_secs: u64,
 ) -> Result<()> {
     let timeout = std::time::Duration::from_secs(timeout_secs);
-    let provider = PostgresProvider::connect_named(&connection_name, None, timeout_secs)
-        .await
-        .map_err(|e| match e {
-            BridgeError::UnsupportedOperation(reason) => BridgeError::UnsupportedOperation(
-                format!("`--from db` only supports postgres connections ({reason})"),
-            ),
-            other => other,
-        })?;
-    let pool = provider.pool_handle()?;
+    let provider_config = load_named_provider_config(&connection_name, None)?;
 
-    let metadata = tokio::time::timeout(timeout, db_introspector::introspect(&pool, &schema))
-        .await
-        .map_err(|_| BridgeError::Timeout(timeout_secs))??;
-    pool.close().await;
+    let (metadata, dialect, effective_schema) = match provider_config.provider_type.as_str() {
+        "postgres" => {
+            let provider = PostgresProvider::connect_named(&connection_name, None, timeout_secs)
+                .await
+                .map_err(|e| match e {
+                    BridgeError::UnsupportedOperation(reason) => BridgeError::UnsupportedOperation(
+                        format!("`--from db` could not use postgres connection ({reason})"),
+                    ),
+                    other => other,
+                })?;
+            let pool = provider.pool_handle()?;
+            let effective_schema = schema.unwrap_or_else(|| "public".to_string());
+            let metadata = tokio::time::timeout(
+                timeout,
+                db_introspector::postgres::introspect(&pool, &effective_schema),
+            )
+            .await
+            .map_err(|_| BridgeError::Timeout(timeout_secs))??;
+            pool.close().await;
+            (metadata, "postgres".to_string(), effective_schema)
+        }
+        "sqlite" => {
+            let effective_schema =
+                schema.unwrap_or_else(|| db_introspector::sqlite::DEFAULT_SCHEMA.to_string());
+            if effective_schema != db_introspector::sqlite::DEFAULT_SCHEMA {
+                return Err(BridgeError::UnsupportedOperation(format!(
+                    "SQLite MCP generation only supports schema '{}'",
+                    db_introspector::sqlite::DEFAULT_SCHEMA
+                )));
+            }
+            let provider = SqliteProvider::connect_named(&connection_name, None, timeout_secs)
+                .await
+                .map_err(|e| match e {
+                    BridgeError::UnsupportedOperation(reason) => BridgeError::UnsupportedOperation(
+                        format!("`--from db` could not use sqlite connection ({reason})"),
+                    ),
+                    other => other,
+                })?;
+            let pool = provider.pool_handle()?;
+            let metadata = tokio::time::timeout(
+                timeout,
+                db_introspector::sqlite::introspect(&pool, &effective_schema),
+            )
+            .await
+            .map_err(|_| BridgeError::Timeout(timeout_secs))??;
+            pool.close().await;
+            (metadata, "sqlite".to_string(), effective_schema)
+        }
+        other => {
+            return Err(BridgeError::UnsupportedOperation(format!(
+                "`--from db` supports postgres and sqlite connections; '{connection_name}' is of type '{other}'"
+            )));
+        }
+    };
 
     if metadata.tables.is_empty() {
         return Err(BridgeError::ProviderError(format!(
-            "schema '{schema}' contains no tables or views to expose. Connect a non-empty database and re-run."
+            "schema '{effective_schema}' contains no tables or views to expose. Connect a non-empty database and re-run."
         )));
     }
 
     let planned = db_tool_planner::plan(&metadata, &connection_name);
     if planned.tools.is_empty() {
         return Err(BridgeError::ProviderError(format!(
-            "no tools could be generated from schema '{schema}' (every object was skipped). Diagnostics: {}",
+            "no tools could be generated from schema '{effective_schema}' (every object was skipped). Diagnostics: {}",
             planned.diagnostics.join("; ")
         )));
     }
 
     let source = Source::Db {
         connection: connection_name.clone(),
-        dialect: "postgres".into(),
-        schema: schema.clone(),
+        dialect: dialect.clone(),
+        schema: effective_schema.clone(),
     };
     let runtime = Runtime {
         transport: Transport::Stdio,
@@ -191,7 +234,8 @@ async fn execute_mcp_db(
         "manifest": out_path.display().to_string(),
         "name": name,
         "connection": connection_name,
-        "schema": schema,
+        "dialect": dialect,
+        "schema": effective_schema,
         "tools": manifest.tools.iter().map(|t| &t.name).collect::<Vec<_>>(),
         "skipped": planned.diagnostics,
         "client_snippet": snippet,

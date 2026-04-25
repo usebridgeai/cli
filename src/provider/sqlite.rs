@@ -20,6 +20,7 @@ use sqlx::{Column, Row, TypeInfo, ValueRef};
 use std::sync::LazyLock;
 use std::time::Instant;
 
+use super::{connect_with_timeout, load_named_provider_config_with_root};
 use super::{Provider, ProviderCapabilities, ProviderStatus, ReadOptions};
 use crate::config::ProviderConfig;
 use crate::context::{ContextData, ContextEntry, ContextMetadata, ContextValue, EntryType};
@@ -61,6 +62,33 @@ impl SqliteProvider {
         self.pool
             .as_ref()
             .ok_or_else(|| BridgeError::ProviderError("Not connected".to_string()))
+    }
+
+    pub fn pool_handle(&self) -> Result<SqlitePool> {
+        Ok(self.pool()?.clone())
+    }
+
+    pub async fn connect_named(
+        connection_name: &str,
+        config_dir: Option<&std::path::Path>,
+        timeout_secs: u64,
+    ) -> Result<Self> {
+        let (config, config_root) =
+            load_named_provider_config_with_root(connection_name, config_dir)?;
+        if config.provider_type != "sqlite" {
+            return Err(BridgeError::UnsupportedOperation(format!(
+                "sqlite connection '{connection_name}' is of type '{}'",
+                config.provider_type
+            )));
+        }
+
+        let config = ProviderConfig {
+            provider_type: config.provider_type,
+            uri: resolve_sqlite_uri_relative_to(&config.uri, &config_root)?,
+        };
+        let mut provider = Self::new();
+        connect_with_timeout(&mut provider, &config, timeout_secs).await?;
+        Ok(provider)
     }
 }
 
@@ -261,6 +289,34 @@ fn parse_sqlite_uri(uri: &str) -> Result<ParsedSqliteUri> {
     })
 }
 
+fn resolve_sqlite_uri_relative_to(uri: &str, base_dir: &std::path::Path) -> Result<String> {
+    let parsed = parse_sqlite_uri(uri)?;
+    let db_path = std::path::Path::new(&parsed.db_path);
+    if parsed.db_path == ":memory:" || parsed.db_path.starts_with("file:") || db_path.is_absolute()
+    {
+        return Ok(uri.to_string());
+    }
+
+    let query = parsed
+        .connection_suffix
+        .split_once('?')
+        .map(|(_, query)| format!("?{query}"))
+        .unwrap_or_default();
+    // Strip `CurDir` (`.`) components so `./local.db` joined against
+    // `/tmp/x` resolves to `/tmp/x/local.db` rather than `/tmp/x/./local.db`.
+    // We intentionally leave ParentDir (`..`) in place — callers may legitimately
+    // reference a sibling directory of the manifest.
+    let resolved: std::path::PathBuf = base_dir
+        .join(db_path)
+        .components()
+        .filter(|c| !matches!(c, std::path::Component::CurDir))
+        .collect();
+    // SQLite URIs use forward slashes on every platform; `Path::display` emits
+    // native separators, which would yield invalid `sqlite://\tmp\db` on Windows.
+    let resolved_uri_path = resolved.to_string_lossy().replace('\\', "/");
+    Ok(format!("sqlite://{}{}", resolved_uri_path, query))
+}
+
 #[async_trait]
 impl Provider for SqliteProvider {
     fn name(&self) -> &str {
@@ -421,5 +477,39 @@ impl Provider for SqliteProvider {
                 message: Some(format!("Connection failed: {e}")),
             }),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_sqlite_uri_relative_to;
+    use std::path::Path;
+
+    #[test]
+    fn resolves_relative_sqlite_uri_against_config_root() {
+        let got = resolve_sqlite_uri_relative_to(
+            "sqlite://./local.db?mode=ro",
+            Path::new("/tmp/bridge-project"),
+        )
+        .unwrap();
+        assert_eq!(got, "sqlite:///tmp/bridge-project/local.db?mode=ro");
+    }
+
+    #[test]
+    fn leaves_absolute_and_special_sqlite_uris_unchanged() {
+        assert_eq!(
+            resolve_sqlite_uri_relative_to("sqlite:///tmp/local.db?mode=ro", Path::new("/x"))
+                .unwrap(),
+            "sqlite:///tmp/local.db?mode=ro"
+        );
+        assert_eq!(
+            resolve_sqlite_uri_relative_to("sqlite://:memory:", Path::new("/x")).unwrap(),
+            "sqlite://:memory:"
+        );
+        assert_eq!(
+            resolve_sqlite_uri_relative_to("sqlite://file:memdb1?mode=memory", Path::new("/x"))
+                .unwrap(),
+            "sqlite://file:memdb1?mode=memory"
+        );
     }
 }
