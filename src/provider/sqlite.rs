@@ -311,7 +311,10 @@ fn resolve_sqlite_uri_relative_to(uri: &str, base_dir: &std::path::Path) -> Resu
         .components()
         .filter(|c| !matches!(c, std::path::Component::CurDir))
         .collect();
-    Ok(format!("sqlite://{}{}", resolved.display(), query))
+    // SQLite URIs use forward slashes on every platform; `Path::display` emits
+    // native separators, which would yield invalid `sqlite://\tmp\db` on Windows.
+    let resolved_uri_path = resolved.to_string_lossy().replace('\\', "/");
+    Ok(format!("sqlite://{}{}", resolved_uri_path, query))
 }
 
 #[async_trait]
