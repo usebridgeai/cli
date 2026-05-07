@@ -111,7 +111,7 @@ async fn introspect_columns(
         let nullable_str: String = r.get("is_nullable");
         let is_nullable = nullable_str.eq_ignore_ascii_case("YES");
         let comment: String = r.get("comment");
-        let category = classify_mysql(&data_type);
+        let category = classify_mysql(&data_type, &udt_name);
         out.push(ColumnMetadata {
             name: r.get("name"),
             data_type,
@@ -182,7 +182,11 @@ async fn introspect_unique_single_keys(
     Ok(keys)
 }
 
-fn classify_mysql(data_type: &str) -> ColumnCategory {
+fn classify_mysql(data_type: &str, column_type: &str) -> ColumnCategory {
+    // BOOL/BOOLEAN columns have DATA_TYPE='tinyint' but COLUMN_TYPE='tinyint(1)'
+    if column_type.trim().eq_ignore_ascii_case("tinyint(1)") {
+        return ColumnCategory::Boolean;
+    }
     let lower = data_type.trim().to_ascii_lowercase();
     match lower.as_str() {
         "tinyint" | "smallint" | "mediumint" | "int" | "integer" | "bigint" => {

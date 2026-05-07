@@ -452,7 +452,11 @@ async fn call_mysql(pool: &MySqlPool, plan: &SqlSelectExecute, input: &Value) ->
     )
     .await
     {
-        Ok(res) => res?,
+        Ok(Ok(rows)) => rows,
+        Ok(Err(e)) => {
+            let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+            return Err(e.into());
+        }
         Err(_) => {
             let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
             return Err(BridgeError::Timeout(STATEMENT_TIMEOUT_MS / 1000));
