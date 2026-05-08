@@ -238,41 +238,6 @@ async fn generate_mcp_from_db_fails_on_missing_connection() {
         .stderr(contains("provider_not_found"));
 }
 
-#[tokio::test]
-#[ignore]
-async fn generate_mcp_from_db_rejects_non_postgres_connection() {
-    let dir = TempDir::new().unwrap();
-    bridge()
-        .arg("init")
-        .current_dir(dir.path())
-        .assert()
-        .success();
-    bridge()
-        .args(["connect", "sqlite://./x.db", "--as", "local", "--no-verify"])
-        .current_dir(dir.path())
-        .assert()
-        .success();
-
-    let out = dir.path().join("out.yaml");
-    bridge()
-        .args([
-            "generate",
-            "mcp",
-            "--from",
-            "db",
-            "--connection",
-            "local",
-            "--name",
-            "x",
-            "--out",
-            out.to_str().unwrap(),
-        ])
-        .current_dir(dir.path())
-        .assert()
-        .failure()
-        .stderr(contains("postgres connections"));
-}
-
 // ─── Runtime: serve the generated manifest and drive it over stdio ──────────
 
 #[tokio::test]

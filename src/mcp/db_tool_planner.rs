@@ -430,7 +430,7 @@ fn column_input_schema(col: &ColumnMetadata) -> Value {
     let desc = col
         .comment
         .clone()
-        .unwrap_or_else(|| format!("Filter by {} (postgres type: {}).", col.name, col.udt_name));
+        .unwrap_or_else(|| format!("Filter by {} (SQL type: {}).", col.name, col.udt_name));
     obj.insert("description".into(), Value::String(desc));
     Value::Object(obj)
 }

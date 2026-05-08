@@ -23,7 +23,7 @@ deploy/
 └── bridge.yaml
 ```
 
-Example `bridge.yaml`:
+Example `bridge.yaml` for Postgres:
 
 ```yaml
 version: "1"
@@ -32,6 +32,17 @@ providers:
   analytics:
     type: postgres
     uri: ${DATABASE_URL}
+```
+
+SQLite is also supported when the database file is available to the host:
+
+```yaml
+version: "1"
+name: localdb
+providers:
+  localdb:
+    type: sqlite
+    uri: sqlite://./local.db?mode=ro
 ```
 
 ## Startup Checklist
@@ -43,6 +54,7 @@ Before starting `bridge mcp serve-http`, make sure:
 - Required environment variables are present:
   - `DATABASE_URL` (or whatever env var your DB connection uses in
     `bridge.yaml`)
+  - the SQLite database file if the manifest uses a SQLite connection
   - any `runtime.base_url_env` or bearer-token env vars referenced by the
     manifest
 - The bind address and externally reachable URL are set for your deployment.
