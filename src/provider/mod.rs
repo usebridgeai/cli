@@ -14,6 +14,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 pub mod filesystem;
+pub mod mysql;
 pub mod postgres;
 pub mod sqlite;
 
@@ -27,7 +28,7 @@ use async_trait::async_trait;
 use serde::Serialize;
 use std::path::Path;
 
-pub const SUPPORTED_PROVIDER_TYPES: &[&str] = &["filesystem", "postgres", "sqlite"];
+pub const SUPPORTED_PROVIDER_TYPES: &[&str] = &["filesystem", "mysql", "postgres", "sqlite"];
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ProviderCapabilities {
@@ -76,6 +77,7 @@ pub trait Provider: Send + Sync {
 pub fn create_provider(type_name: &str) -> Result<Box<dyn Provider>> {
     match type_name {
         "filesystem" => Ok(Box::new(filesystem::FilesystemProvider::new())),
+        "mysql" => Ok(Box::new(mysql::MySqlProvider::new())),
         "postgres" => Ok(Box::new(postgres::PostgresProvider::new())),
         "sqlite" => Ok(Box::new(sqlite::SqliteProvider::new())),
         _ => Err(BridgeError::ProviderNotFound(

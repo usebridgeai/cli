@@ -8,6 +8,7 @@ use crate::mcp::db_tool_planner;
 use crate::mcp::manifest::{Auth, Manifest, Runtime, Source, Transport};
 use crate::mcp::{openapi, tool_mapper};
 use crate::provider::load_named_provider_config;
+use crate::provider::mysql::MySqlProvider;
 use crate::provider::postgres::PostgresProvider;
 use crate::provider::sqlite::SqliteProvider;
 use serde_json::json;
@@ -189,9 +190,32 @@ async fn execute_mcp_db(
             pool.close().await;
             (metadata, "sqlite".to_string(), effective_schema)
         }
+        "mysql" => {
+            let effective_schema =
+                schema.unwrap_or_else(|| db_introspector::mysql::DEFAULT_SCHEMA.to_string());
+            let provider = MySqlProvider::connect_named(&connection_name, None, timeout_secs)
+                .await
+                .map_err(|e| match e {
+                    BridgeError::UnsupportedOperation(reason) => BridgeError::UnsupportedOperation(
+                        format!("`--from db` could not use mysql connection ({reason})"),
+                    ),
+                    other => other,
+                })?;
+            let pool = provider.pool_handle()?;
+            let metadata = tokio::time::timeout(
+                timeout,
+                db_introspector::mysql::introspect(&pool, &effective_schema),
+            )
+            .await
+            .map_err(|_| BridgeError::Timeout(timeout_secs))??;
+            // introspect resolves the real DB name even when DEFAULT_SCHEMA is empty.
+            let resolved_schema = metadata.schema.clone();
+            pool.close().await;
+            (metadata, "mysql".to_string(), resolved_schema)
+        }
         other => {
             return Err(BridgeError::UnsupportedOperation(format!(
-                "`--from db` supports postgres and sqlite connections; '{connection_name}' is of type '{other}'"
+                "`--from db` supports mysql, postgres, and sqlite connections; '{connection_name}' is of type '{other}'"
             )));
         }
     };

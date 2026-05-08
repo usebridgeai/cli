@@ -5,6 +5,8 @@
 // Query SQL database catalogs and return a normalized metadata model. Purely
 // schema-level — never touches user data rows.
 
+#[path = "db_introspector/mysql.rs"]
+pub mod mysql;
 #[path = "db_introspector/postgres.rs"]
 pub mod postgres;
 #[path = "db_introspector/sqlite.rs"]

@@ -11,10 +11,12 @@ use crate::error::{BridgeError, Result};
 use crate::mcp::manifest::{LimitSpec, Manifest, SqlColumnType, SqlSelectExecute, SqlSelectMode};
 use crate::mcp::service::SqlExecuting;
 use crate::provider::load_named_provider_config;
+use crate::provider::mysql::MySqlProvider;
 use crate::provider::postgres::PostgresProvider;
 use crate::provider::sqlite::SqliteProvider;
 use async_trait::async_trait;
 use serde_json::Value;
+use sqlx::mysql::MySqlPool;
 use sqlx::postgres::PgPool;
 use sqlx::sqlite::SqlitePool;
 use sqlx::Row;
@@ -40,6 +42,7 @@ pub struct SqlExecutor {
 
 #[derive(Clone)]
 enum SqlPool {
+    Mysql(MySqlPool),
     Postgres(PgPool),
     Sqlite(SqlitePool),
 }
@@ -74,9 +77,12 @@ impl SqlExecutor {
         let mut provider_types = HashMap::new();
         for name in refs {
             let provider = load_named_provider_config(&name, config_dir)?;
-            if !matches!(provider.provider_type.as_str(), "postgres" | "sqlite") {
+            if !matches!(
+                provider.provider_type.as_str(),
+                "mysql" | "postgres" | "sqlite"
+            ) {
                 return Err(BridgeError::UnsupportedOperation(format!(
-                    "MCP SQL tools require a postgres or sqlite connection; '{name}' is of type '{}'",
+                    "MCP SQL tools require a mysql, postgres, or sqlite connection; '{name}' is of type '{}'",
                     provider.provider_type
                 )));
             }
@@ -103,6 +109,15 @@ impl SqlExecutor {
             ))
         })?;
         let pool = match provider_type.as_str() {
+            "mysql" => {
+                let provider = MySqlProvider::connect_named(
+                    connection_ref,
+                    self.config_dir.as_deref(),
+                    self.connect_timeout_secs,
+                )
+                .await?;
+                SqlPool::Mysql(provider.pool_handle()?)
+            }
             "postgres" => {
                 let provider = PostgresProvider::connect_named(
                     connection_ref,
@@ -142,6 +157,7 @@ impl SqlExecutor {
     pub async fn call(&self, plan: &SqlSelectExecute, input: &Value) -> Result<Value> {
         let pool = self.pool_for(&plan.connection_ref).await?;
         match pool {
+            SqlPool::Mysql(pool) => call_mysql(&pool, plan, input).await,
             SqlPool::Postgres(pool) => call_postgres(&pool, plan, input).await,
             SqlPool::Sqlite(pool) => call_sqlite(&pool, plan, input).await,
         }
@@ -150,16 +166,18 @@ impl SqlExecutor {
 
 #[derive(Clone, Copy, Debug)]
 enum Dialect {
+    Mysql,
     Postgres,
     Sqlite,
 }
 
 impl Dialect {
-    /// Positional placeholder: Postgres is `$N`, SQLite is `?N`.
+    /// Positional placeholder: Postgres uses `$N`, SQLite uses `?N`, MySQL uses `?`.
     fn placeholder(self, n: usize) -> String {
         match self {
             Dialect::Postgres => format!("${n}"),
             Dialect::Sqlite => format!("?{n}"),
+            Dialect::Mysql => "?".to_string(),
         }
     }
 
@@ -167,6 +185,17 @@ impl Dialect {
         match self {
             Dialect::Postgres => select_expression(name, ct),
             Dialect::Sqlite => sqlite_select_expression(name, ct),
+            Dialect::Mysql => mysql_select_expression(name, ct),
+        }
+    }
+
+    /// Quote a SQL identifier with the correct delimiters for this dialect.
+    fn quote_ident(self, name: &str) -> String {
+        match self {
+            Dialect::Postgres | Dialect::Sqlite => {
+                format!("\"{}\"", name.replace('"', "\"\""))
+            }
+            Dialect::Mysql => format!("`{}`", name.replace('`', "``")),
         }
     }
 }
@@ -197,7 +226,7 @@ fn build_sql(
             .ok_or_else(|| BridgeError::Http(format!("missing required key '{key}'")))?;
         where_clauses.push(format!(
             "{} = {}",
-            quote_ident(key),
+            dialect.quote_ident(key),
             dialect.placeholder(bind_values.len() + 1)
         ));
         bind_values.push(v.clone());
@@ -228,7 +257,7 @@ fn build_sql(
             }
             where_clauses.push(format!(
                 "{} = {}",
-                quote_ident(k),
+                dialect.quote_ident(k),
                 dialect.placeholder(bind_values.len() + 1)
             ));
             bind_values.push(v.clone());
@@ -244,7 +273,11 @@ fn build_sql(
             .collect::<Vec<_>>()
             .join(", ")
     };
-    let from_clause = format!("{}.{}", quote_ident(&plan.schema), quote_ident(&plan.table));
+    let from_clause = format!(
+        "{}.{}",
+        dialect.quote_ident(&plan.schema),
+        dialect.quote_ident(&plan.table)
+    );
     let where_sql = if where_clauses.is_empty() {
         String::new()
     } else {
@@ -267,7 +300,7 @@ fn build_sql(
                         });
                     }
                 };
-                order_sql = format!(" ORDER BY {} {}", quote_ident(col), dir);
+                order_sql = format!(" ORDER BY {} {}", dialect.quote_ident(col), dir);
             } else {
                 return Err(BridgeError::ToolInputInvalid {
                     tool: plan.table.clone(),
@@ -394,6 +427,46 @@ async fn call_sqlite(pool: &SqlitePool, plan: &SqlSelectExecute, input: &Value) 
     let json_rows: Vec<Value> = rows
         .iter()
         .map(|row| sqlite_row_to_json(row, plan))
+        .collect::<Result<_>>()?;
+
+    Ok(finalize_rows(plan, json_rows))
+}
+
+async fn call_mysql(pool: &MySqlPool, plan: &SqlSelectExecute, input: &Value) -> Result<Value> {
+    let (sql, bind_values) = build_sql(plan, input, Dialect::Mysql)?;
+
+    // Use START TRANSACTION READ ONLY so MySQL rejects any write that could
+    // slip through a malformed plan. ROLLBACK releases the read view cleanly.
+    let mut conn = pool.acquire().await?;
+    sqlx::query("START TRANSACTION READ ONLY")
+        .execute(&mut *conn)
+        .await?;
+
+    let mut query = sqlx::query(&sql);
+    for v in &bind_values {
+        query = bind_json_mysql(query, v);
+    }
+    let rows = match tokio::time::timeout(
+        std::time::Duration::from_millis(STATEMENT_TIMEOUT_MS),
+        query.fetch_all(&mut *conn),
+    )
+    .await
+    {
+        Ok(Ok(rows)) => rows,
+        Ok(Err(e)) => {
+            let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+            return Err(e.into());
+        }
+        Err(_) => {
+            let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+            return Err(BridgeError::Timeout(STATEMENT_TIMEOUT_MS / 1000));
+        }
+    };
+    sqlx::query("ROLLBACK").execute(&mut *conn).await?;
+
+    let json_rows: Vec<Value> = rows
+        .iter()
+        .map(|row| mysql_row_to_json(row, plan))
         .collect::<Result<_>>()?;
 
     Ok(finalize_rows(plan, json_rows))
@@ -698,6 +771,137 @@ fn fallback_row_to_json(row: &sqlx::postgres::PgRow) -> Result<Value> {
                 Ok(Some(v)) => Value::String(v),
                 _ => Value::Null,
             },
+        };
+        map.insert(name, value);
+    }
+    Ok(Value::Object(map))
+}
+
+fn mysql_select_expression(name: &str, _column_type: Option<&SqlColumnType>) -> String {
+    format!("`{}`", name.replace('`', "``"))
+}
+
+fn bind_json_mysql<'q>(
+    query: sqlx::query::Query<'q, sqlx::MySql, sqlx::mysql::MySqlArguments>,
+    v: &'q Value,
+) -> sqlx::query::Query<'q, sqlx::MySql, sqlx::mysql::MySqlArguments> {
+    match v {
+        Value::Null => query.bind(None::<String>),
+        Value::Bool(b) => query.bind(*b),
+        Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                query.bind(i)
+            } else if let Some(f) = n.as_f64() {
+                query.bind(f)
+            } else {
+                query.bind(n.to_string())
+            }
+        }
+        Value::String(s) => query.bind(s.as_str()),
+        _ => query.bind(v.to_string()),
+    }
+}
+
+fn mysql_row_to_json(row: &sqlx::mysql::MySqlRow, plan: &SqlSelectExecute) -> Result<Value> {
+    if plan.column_types.is_empty() {
+        return fallback_mysql_row_to_json(row);
+    }
+
+    let mut map = serde_json::Map::new();
+    for name in &plan.selectable_columns {
+        let column_type = plan.column_types.get(name).ok_or_else(|| {
+            BridgeError::Manifest(format!(
+                "sql plan missing column_types entry for selectable column '{name}'"
+            ))
+        })?;
+        let value = mysql_column_value(row, name, *column_type);
+        map.insert(name.clone(), value);
+    }
+    Ok(Value::Object(map))
+}
+
+fn mysql_column_value(
+    row: &sqlx::mysql::MySqlRow,
+    name: &str,
+    column_type: SqlColumnType,
+) -> Value {
+    match column_type {
+        SqlColumnType::Integer => match row.try_get::<Option<i64>, _>(name) {
+            Ok(Some(v)) => Value::Number(v.into()),
+            Ok(None) => Value::Null,
+            Err(_) => Value::Null,
+        },
+        SqlColumnType::Float => match row.try_get::<Option<f64>, _>(name) {
+            Ok(Some(v)) => serde_json::Number::from_f64(v)
+                .map(Value::Number)
+                .unwrap_or(Value::Null),
+            Ok(None) => Value::Null,
+            Err(_) => Value::Null,
+        },
+        SqlColumnType::Boolean => match row.try_get::<Option<bool>, _>(name) {
+            Ok(Some(v)) => Value::Bool(v),
+            Ok(None) => Value::Null,
+            // MySQL stores BOOL as TINYINT — fall back to integer decode.
+            Err(_) => match row.try_get::<Option<i64>, _>(name) {
+                Ok(Some(v)) => Value::Bool(v != 0),
+                Ok(None) => Value::Null,
+                Err(_) => Value::Null,
+            },
+        },
+        SqlColumnType::Json => {
+            // MySQL returns JSON as text over the wire — decode as String and parse.
+            match row.try_get::<Option<String>, _>(name) {
+                Ok(Some(s)) => serde_json::from_str(&s).unwrap_or(Value::String(s)),
+                Ok(None) => Value::Null,
+                Err(_) => Value::Null,
+            }
+        }
+        SqlColumnType::Numeric | SqlColumnType::Timestamp | SqlColumnType::Uuid => {
+            match row.try_get::<Option<String>, _>(name) {
+                Ok(Some(s)) => Value::String(s),
+                Ok(None) => Value::Null,
+                Err(_) => Value::Null,
+            }
+        }
+        SqlColumnType::Text => match row.try_get::<Option<String>, _>(name) {
+            Ok(Some(v)) => Value::String(v),
+            Ok(None) => Value::Null,
+            Err(_) => Value::Null,
+        },
+    }
+}
+
+fn fallback_mysql_row_to_json(row: &sqlx::mysql::MySqlRow) -> Result<Value> {
+    use sqlx::{Column, TypeInfo};
+
+    let mut map = serde_json::Map::new();
+    for col in row.columns() {
+        let name = col.name().to_string();
+        let type_name = col.type_info().name().to_ascii_uppercase();
+        let value = if type_name.contains("INT") {
+            row.try_get::<Option<i64>, _>(col.ordinal())
+                .ok()
+                .flatten()
+                .map(|v| Value::Number(v.into()))
+                .unwrap_or(Value::Null)
+        } else if type_name == "FLOAT" || type_name.contains("DOUBLE") {
+            row.try_get::<Option<f64>, _>(col.ordinal())
+                .ok()
+                .flatten()
+                .and_then(|v| serde_json::Number::from_f64(v).map(Value::Number))
+                .unwrap_or(Value::Null)
+        } else if type_name == "JSON" {
+            row.try_get::<Option<String>, _>(col.ordinal())
+                .ok()
+                .flatten()
+                .and_then(|s| serde_json::from_str(&s).ok())
+                .unwrap_or(Value::Null)
+        } else {
+            row.try_get::<Option<String>, _>(col.ordinal())
+                .ok()
+                .flatten()
+                .map(Value::String)
+                .unwrap_or(Value::Null)
         };
         map.insert(name, value);
     }
