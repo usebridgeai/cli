@@ -78,6 +78,15 @@ pub async fn serve(manifest: Manifest, timeout_secs: u64, config_dir: &Path) -> 
         }
 
         let response = match serde_json::from_str::<Value>(trimmed) {
+            Ok(Value::Array(items)) => {
+                let mut out = Vec::with_capacity(items.len());
+                for item in items {
+                    if let Some(resp) = service.handle_jsonrpc(item).await {
+                        out.push(resp);
+                    }
+                }
+                (!out.is_empty()).then_some(Value::Array(out))
+            }
             Ok(req) => service.handle_jsonrpc(req).await,
             Err(e) => Some(json!({
                 "jsonrpc": "2.0",
