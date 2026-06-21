@@ -110,6 +110,67 @@ fn send_and_recv(
 }
 
 #[test]
+fn mcp_stdio_serves_jsonrpc_batches() {
+    let tmp = TempDir::new().unwrap();
+    let manifest = tmp.path().join("petstore.mcp.yaml");
+    generate_manifest(&manifest);
+
+    let (addr, _shutdown) = start_mock_backend();
+    let base = format!("http://{addr}");
+
+    let mut child = StdCommand::cargo_bin("bridge")
+        .unwrap()
+        .env("BRIDGE_TEST_PETSTORE_BASE_URL", &base)
+        .args(["mcp", "serve", manifest.to_str().unwrap()])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let mut stdin = child.stdin.take().unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let (line_tx, line_rx) = std::sync::mpsc::channel();
+
+    thread::spawn(move || {
+        let mut reader = BufReader::new(stdout);
+        let mut buf = String::new();
+        let result = reader.read_line(&mut buf).map(|n| (n, buf));
+        let _ = line_tx.send(result);
+    });
+
+    let batch = json!([
+        { "jsonrpc": "2.0", "id": 1, "method": "ping" },
+        { "jsonrpc": "2.0", "id": 2, "method": "tools/list" }
+    ]);
+    stdin
+        .write_all(format!("{batch}\n").as_bytes())
+        .expect("write batch");
+    stdin.flush().expect("flush batch");
+
+    let response = match line_rx.recv_timeout(Duration::from_secs(3)) {
+        Ok(Ok((n, line))) if n > 0 => serde_json::from_str::<Value>(&line).unwrap(),
+        Ok(Ok((_n, _line))) => panic!("stdio closed before batch response"),
+        Ok(Err(e)) => panic!("failed to read batch response: {e}"),
+        Err(_) => {
+            let _ = child.kill();
+            panic!("timed out waiting for JSON-RPC batch response");
+        }
+    };
+
+    let responses = response.as_array().expect("batch response array");
+    assert_eq!(responses.len(), 2);
+    assert_eq!(responses[0]["id"], json!(1));
+    assert_eq!(responses[0]["result"], json!({}));
+    assert_eq!(responses[1]["id"], json!(2));
+    assert!(responses[1]["result"]["tools"].as_array().unwrap().len() > 0);
+
+    drop(stdin);
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+#[test]
 fn mcp_server_serves_generated_tool_end_to_end() {
     let tmp = TempDir::new().unwrap();
     let manifest = tmp.path().join("petstore.mcp.yaml");
